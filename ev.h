@@ -51,7 +51,9 @@
 #endif // __linux__
 
 #include <time.h>
+#include <netdb.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -948,6 +950,190 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
         if (ret < 0) return -EV_ERR;
     }
     return EV_OK;
+}
+
+/*
+ * =================================
+ *  TCP server helper APIs exposed
+ * ================================
+ */
+
+typedef struct tcp_server ev_tcp_server;
+typedef struct tcp_client ev_tcp_client;
+typedef void (*conn_callback)(ev_tcp_server *);
+typedef void (*read_callback)(ev_tcp_client *);
+
+struct tcp_server {
+    int sfd;
+    int backlog;
+    int port;
+    char host[0xff];
+    ev_context *ctx;
+    conn_callback on_connection;
+    read_callback on_read;
+};
+
+struct tcp_client {
+    int fd;
+    size_t bufsize;
+    size_t capacity;
+    char *buf;
+    ev_tcp_server *server;
+};
+
+void ev_tcp_server_listen(ev_tcp_server *, const char *, int, conn_callback);
+void ev_tcp_server_stop(ev_tcp_server *);
+void ev_tcp_server_accept(ev_tcp_server *, ev_tcp_client *, read_callback);
+void ev_tcp_server_register(ev_tcp_server *, ev_tcp_client *);
+void ev_tcp_read(ev_tcp_client *);
+
+/* Set non-blocking socket */
+static inline int set_nonblocking(int fd) {
+    int flags, result;
+    flags = fcntl(fd, F_GETFL, 0);
+
+    if (flags == -1)
+        goto err;
+
+    result = fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    if (result == -1)
+        goto err;
+
+    return 0;
+
+err:
+
+    fprintf(stderr, "set_nonblocking: %s\n", strerror(errno));
+    return -1;
+}
+
+static void on_accept(ev_context *ctx, void *data) {
+    (void) ctx;
+    ev_tcp_server *server = data;
+    server->on_connection(server);
+}
+
+static void on_read(ev_context *ctx, void *data) {
+    (void) ctx;
+    ev_tcp_client *client = data;
+    client->server->on_read(client);
+}
+
+void ev_tcp_server_listen(ev_tcp_server *server, const char *host,
+                          int port, conn_callback on_connection) {
+    // TODO remove
+    server->backlog = 128;
+    int listen_fd = -1;
+    const struct addrinfo hints = {
+        .ai_family = AF_UNSPEC,
+        .ai_socktype = SOCK_STREAM,
+        .ai_flags = AI_PASSIVE
+    };
+    struct addrinfo *result, *rp;
+    char port_str[6];
+
+    snprintf(port_str, 6, "%i", port);
+
+    if (getaddrinfo(host, port_str, &hints, &result) != 0)
+        fprintf(stderr, "getaddrinfo(2): %s\n", strerror(errno));
+
+    /* Create a listening socket */
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        listen_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (listen_fd < 0) continue;
+        /* Bind it to the addr:port opened on the network interface */
+        if (bind(listen_fd, rp->ai_addr, rp->ai_addrlen) == 0)
+            break; // Succesful bind
+        close(listen_fd);
+    }
+
+    freeaddrinfo(result);
+    if (rp == NULL)
+        fprintf(stderr, "freeaddrinfo(2): %s\n", strerror(errno));
+
+    /*
+     * Let's make the socket non-blocking (strongly advised to use the
+     * eventloop)
+     */
+    (void) set_nonblocking(listen_fd);
+
+    /* Finally let's make it listen */
+    if (listen(listen_fd, server->backlog) != 0)
+        fprintf(stderr, "listen(2): %s\n", strerror(errno));
+
+    server->sfd = listen_fd;
+    snprintf(server->host, strlen(host), "%s", host);
+    server->port = port;
+    server->ctx = malloc(sizeof(*server->ctx));
+    ev_init(server->ctx, 32);
+    server->on_connection = on_connection;
+
+    // Register to service callback
+    ev_register_event(server->ctx, server->sfd, EV_READ, on_accept, server);
+
+    ev_run(server->ctx);
+}
+
+void ev_tcp_server_accept(ev_tcp_server *server,
+                          ev_tcp_client *client, read_callback on_data) {
+    server->on_read = on_data;
+    while (1) {
+        int fd;
+        struct sockaddr_in addr;
+        socklen_t addrlen = sizeof(addr);
+
+        /* Let's accept on listening socket */
+        if ((fd = accept(server->sfd, (struct sockaddr *) &addr, &addrlen)) < 0)
+            break;
+
+        if (fd == 0)
+            continue;
+
+        /* Make the new accepted socket non-blocking */
+        (void) set_nonblocking(fd);
+
+        // XXX placeholder
+        client->fd = fd;
+        client->bufsize = 0;
+        client->capacity = 2048;
+        client->buf = calloc(1, 2048);
+        client->server = server;
+
+        ev_register_event(server->ctx, fd, EV_READ, on_read, client);
+    }
+}
+
+void ev_tcp_read(ev_tcp_client *client) {
+    ssize_t n = 0;
+    /* Read incoming stream of bytes */
+    do {
+        n = read(client->fd, client->buf + client->bufsize,
+                 client->capacity - client->bufsize);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
+            else
+                return;
+        }
+        client->bufsize += n;
+        /* Re-size the buffer in case of overflow of bytes */
+        if (client->bufsize == client->capacity) {
+            client->capacity *= 2;
+            client->buf = realloc(client->buf, client->capacity);
+        }
+    } while (n > 0);
+
+    /* 0 bytes read means disconnection by the client */
+    if (n == 0) {
+        ev_del_fd(client->server->ctx, client->fd);
+        return;
+    }
+}
+
+void ev_tcp_server_stop(ev_tcp_server *server) {
+    ev_del_fd(server->ctx, server->sfd);
+    close(server->sfd);
+    free(server);
 }
 
 #endif

@@ -30,7 +30,7 @@ struct connection {
 };
 
 /* Set non-blocking socket */
-static inline int set_nonblocking(int fd) {
+static inline int make_nonblocking(int fd) {
     int flags, result;
     flags = fcntl(fd, F_GETFL, 0);
 
@@ -45,7 +45,7 @@ static inline int set_nonblocking(int fd) {
 
 err:
 
-    fprintf(stderr, "set_nonblocking: %s\n", strerror(errno));
+    fprintf(stderr, "make_nonblocking: %s\n", strerror(errno));
     return -1;
 }
 
@@ -82,7 +82,7 @@ static void on_connection(ev_context *ctx, void *data) {
             continue;
 
         /* Make the new accepted socket non-blocking */
-        (void) set_nonblocking(fd);
+        (void) make_nonblocking(fd);
 
         struct connection *conn = malloc(sizeof(*conn));
         if (connection_init(conn, fd) == -1)
@@ -202,7 +202,7 @@ int main(void) {
      * Let's make the socket non-blocking (strongly advised to use the
      * eventloop)
      */
-    if (set_nonblocking(listen_fd) != 0)
+    if (make_nonblocking(listen_fd) != 0)
         goto err;
 
     /* Finally let's make it listen */

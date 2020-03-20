@@ -28,6 +28,9 @@ ev.build
 prof_output
 ev
 test
+ping_pong
+echo_server
+ev_tcp_server
 compile_commands.json
 certs/
 perf.txt
