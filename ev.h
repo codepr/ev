@@ -635,7 +635,11 @@ static int ev_api_get_event_type(ev_context *ctx, int idx) {
 
 static int ev_api_poll(ev_context *ctx, time_t timeout) {
     struct kqueue_api *k_api = ctx->api;
-    int err = kevent(k_api->fd, NULL, 0, k_api->events, ctx->maxevents, NULL);
+    struct timespec ts_timeout;
+    ts_timeout.tv_sec = timeout;
+    ts_timeout.tv_nsec = 0;
+    int err = kevent(k_api->fd, NULL, 0,
+                     k_api->events, ctx->maxevents, &ts_timeout);
     if (err < 0)
         return -EV_ERR;
     return err;
@@ -689,6 +693,7 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
  */
 static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
                                             int idx, int mask) {
+    (void) mask; // silence compiler warning
     int fd = ((struct kqueue_api *) ctx->api)->events[idx].ident;
     return ctx->events_monitored + fd;
 }
@@ -976,8 +981,10 @@ int ev_register_cron(ev_context *ctx,
     struct kqueue_api *k_api = ctx->api;
     // milliseconds
     unsigned period = (s * 1000)  + (ns / 100);
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    ev_add_monitored(ctx, fd, EV_TIMERFD|EV_READ, callback, data);
     struct kevent ke;
-    EV_SET(&ke, 1, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, period, 0);
+    EV_SET(&ke, fd, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, period, 0);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
         return -EV_ERR;
     return EV_OK;
