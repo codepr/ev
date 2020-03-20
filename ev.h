@@ -28,6 +28,28 @@
 #ifndef EV_H
 #define EV_H
 
+#ifdef __linux__
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 5, 44)
+#define EPOLL 1
+#define EVENTLOOP_BACKEND "epoll"
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 1, 23)
+#define POLL 1
+#define EVENTLOOP_BACKEND "poll"
+#else
+#define SELECT 1
+#define EVENTLOOP_BACKEND "select"
+#endif
+
+#elif defined(__APPLE__) || defined(__FreeBSD__) \
+       || defined(__OpenBSD__) || defined (__NetBSD__)
+#define KQUEUE 1
+#define EVENTLOOP_BACKEND "kqueue"
+#else
+#define SELECT 1
+#define EVENTLOOP_BACKEND "select"
+#endif // __linux__
+
 #include <time.h>
 #include <errno.h>
 #include <string.h>
@@ -80,7 +102,7 @@ typedef struct ev_ctx {
  * Event struture used as the main carrier of clients informations, it will be
  * tracked by an array in every context created
  */
-typedef struct ev {
+struct ev {
     int fd;
     int mask;
     void *rdata; // opaque pointer for read callback args
@@ -88,6 +110,64 @@ typedef struct ev {
     void (*rcallback)(ev_context *, void *); // read callback
     void (*wcallback)(ev_context *, void *); // write callback
 };
+
+void ev_init(struct ev_ctx *, int);
+
+void ev_destroy(struct ev_ctx *);
+
+/*
+ * Poll an event context for events, accepts a timeout or block forever,
+ * returning only when a list of FDs are ready to either READ, WRITE or TIMER
+ * to be executed.
+ */
+int ev_poll(struct ev_ctx *, time_t);
+
+/*
+ * Blocks forever in a loop polling for events with ev_poll calls. At every
+ * cycle executes callbacks registered with each event
+ */
+int ev_run(struct ev_ctx *);
+
+/*
+ * Trigger a stop on a running event, it's meant to be run as an event in a
+ * running ev_ctx
+ */
+void ev_stop(struct ev_ctx *);
+
+/*
+ * Add a single FD to the underlying backend of the event loop. Equal to
+ * ev_fire_event just without an event to be carried. Useful to add simple
+ * descritors like a listening socket o message queue FD.
+ */
+int ev_watch_fd(struct ev_ctx *, int, int);
+
+/*
+ * Remove a FD from the loop, even tho a close syscall is sufficient to remove
+ * the FD from the underlying backend such as EPOLL/SELECT, this call ensure
+ * that any associated events is cleaned out an set to EV_NONE
+ */
+int ev_del_fd(struct ev_ctx *, int);
+
+/*
+ * Register a new event, semantically it's equal to ev_register_event but
+ * it's meant to be used when an FD is not already watched by the event loop.
+ * It could be easily integrated in ev_fire_event call but I prefer maintain
+ * the samantic separation of responsibilities.
+ */
+int ev_register_event(struct ev_ctx *, int, int,
+                      void (*callback)(struct ev_ctx *, void *), void *);
+
+int ev_register_cron(struct ev_ctx *,
+                     void (*callback)(struct ev_ctx *, void *),
+                     void *,
+                     long long, long long);
+
+/*
+ * Register a new event for the next loop cycle to a FD. Equal to ev_watch_fd
+ * but allow to carry an event object for the next cycle.
+ */
+int ev_fire_event(struct ev_ctx *, int, int,
+                  void (*callback)(struct ev_ctx *, void *), void *);
 
 #if defined(EPOLL)
 
@@ -368,6 +448,10 @@ static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
  * It's the oldest multiplexing IO and practically obiquitous, making it the
  * perfect fallback for every system.
  */
+
+// Maximum number of monitorable descriptors on select
+#define SELECT_FDS_HARDCAP 1024
+
 struct select_api {
     fd_set rfds, wfds;
     // Copy of the original fdset arrays to re-initialize them after each cycle
@@ -380,7 +464,7 @@ static void ev_api_init(ev_context *ctx, int events_nr) {
      * fd_set is an array of 32 i32 and each FD is represented by a bit so
      * 32 x 32 = 1024 as hard limit
      */
-    assert(events_nr <= 1024);
+    assert(events_nr <= SELECT_FDS_HARDCAP);
     struct select_api *s_api = malloc(sizeof(*s_api));
     FD_ZERO(&s_api->rfds);
     FD_ZERO(&s_api->wfds);
