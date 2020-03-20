@@ -53,7 +53,9 @@
 #include <time.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 #include <assert.h>
+#include <unistd.h>
 #ifdef __linux__
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
@@ -298,6 +300,7 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
  */
 static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
                                             int idx, int mask) {
+    (void) mask; // silence the compiler warning
     int fd = ((struct epoll_api *) ctx->api)->events[idx].data.fd;
     return ctx->events_monitored + fd;
 }
