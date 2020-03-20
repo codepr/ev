@@ -58,6 +58,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
+#include <signal.h>
 #ifdef __linux__
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
@@ -696,6 +697,30 @@ static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
 
 static ev_context ev_default_ctx;
 static int ev_default_ctx_inited = 0;
+#ifdef __linux__
+static int quit_sig;
+#else
+static int quit_sig[2];
+#endif
+
+// Stops epoll_wait loops by sending an event
+static void ev_sigint_handler(int signum) {
+    (void) signum;
+#ifdef __linux__
+    eventfd_write(quit_sig, 1);
+#else
+    (void) write(quit_sig[0], &(unsigned long) {1}, sizeof(unsigned long));
+#endif
+}
+
+/*
+ * Eventloop stop callback, will be triggered by an EV_CLOSEFD event and stop
+ * the running loop, unblocking the call.
+ */
+static void ev_stop_callback(ev_context *ctx, void *arg) {
+    (void) arg;
+    ev_stop(ctx);
+}
 
 /*
  * Process the event at the position idx in the events_monitored array. Read or
@@ -782,8 +807,24 @@ static inline int ev_get_event_type(ev_context *ctx, int idx) {
 }
 
 ev_context *ev_get_ev_context(void) {
-    if (ev_default_ctx_inited == 0)
+    if (ev_default_ctx_inited == 0) {
+#ifdef __linux__
+        quit_sig = eventfd(0, EFD_NONBLOCK);
+#else
+        pipe(quit_sig);
+#endif
+        signal(SIGINT, ev_sigint_handler);
+        signal(SIGTERM, ev_sigint_handler);
         ev_init(&ev_default_ctx, EVENTLOOP_MAX_EVENTS);
+#ifdef __linux__
+        ev_register_event(&ev_default_ctx, quit_sig,
+                          EV_CLOSEFD | EV_READ, ev_stop_callback, NULL);
+#else
+        ev_register_event(&ev_default_ctx, quit_sig[1],
+                          EV_CLOSEFD | EV_READ, ev_stop_callback, NULL);
+#endif
+        ev_default_ctx_inited = 1;
+    }
     return &ev_default_ctx;
 }
 
@@ -978,7 +1019,7 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
 /*
  * =================================
  *  TCP server helper APIs exposed
- * ================================
+ * =================================
  */
 
 typedef struct tcp_server ev_tcp_server;
@@ -1048,7 +1089,6 @@ static void on_read(ev_context *ctx, void *data) {
 void ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
     server->backlog = backlog;
     server->ctx = ctx;
-    ev_init(server->ctx, EVENTLOOP_MAX_EVENTS);
 }
 
 void ev_tcp_server_listen(ev_tcp_server *server, const char *host,
@@ -1065,7 +1105,7 @@ void ev_tcp_server_listen(ev_tcp_server *server, const char *host,
     snprintf(port_str, 6, "%i", port);
 
     if (getaddrinfo(host, port_str, &hints, &result) != 0)
-        fprintf(stderr, "getaddrinfo(2): %s\n", strerror(errno));
+        goto err;
 
     /* Create a listening socket */
     for (rp = result; rp != NULL; rp = rp->ai_next) {
@@ -1102,6 +1142,7 @@ void ev_tcp_server_listen(ev_tcp_server *server, const char *host,
     /* Blocking call, start the loop here */
     ev_run(server->ctx);
 
+    return;
 err:
     fprintf(stderr, "Something went wrong: %s\n", strerror(errno));
     exit(EXIT_FAILURE);
