@@ -63,6 +63,18 @@
 #include <sys/timerfd.h>
 #endif
 
+/*
+ * Maximum number of events to monitor at a time, useful for epoll and poll
+ * calls, the value represents the length of the events array
+ */
+#define EVENTLOOP_MAX_EVENTS    1024
+
+/*
+ * The timeout to wait before returning on the blocking call that every IO mux
+ * implementation accepts, -1 means block forever untill new events arrive
+ */
+#define EVENTLOOP_TIMEOUT       -1
+
 #define EV_OK  0
 #define EV_ERR 1
 
@@ -116,6 +128,8 @@ struct ev {
 };
 
 void ev_init(struct ev_ctx *, int);
+
+ev_context *ev_get_ev_context(void);
 
 void ev_destroy(struct ev_ctx *);
 
@@ -680,6 +694,9 @@ static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
 
 #endif // KQUEUE
 
+static ev_context ev_default_ctx;
+static int ev_default_ctx_inited = 0;
+
 /*
  * Process the event at the position idx in the events_monitored array. Read or
  * write events can be executed on the same iteration, differentiating just
@@ -764,6 +781,12 @@ static inline int ev_get_event_type(ev_context *ctx, int idx) {
     return ev_api_get_event_type(ctx, idx);
 }
 
+ev_context *ev_get_ev_context(void) {
+    if (ev_default_ctx_inited == 0)
+        ev_init(&ev_default_ctx, EVENTLOOP_MAX_EVENTS);
+    return &ev_default_ctx;
+}
+
 void ev_init(ev_context *ctx, int events_nr) {
     ev_api_init(ctx, events_nr);
     ctx->stop = 0;
@@ -807,7 +830,7 @@ int ev_run(ev_context *ctx) {
          * blocks polling for events, -1 means forever. Returns only in case of
          * valid events ready to be processed or errors
          */
-        n = ev_poll(ctx, -1);
+        n = ev_poll(ctx, EVENTLOOP_TIMEOUT);
         if (n < 0) {
             /* Signals to all threads. Ignore it for now */
             if (errno == EINTR)
@@ -981,6 +1004,7 @@ struct tcp_client {
     ev_tcp_server *server;
 };
 
+void ev_tcp_server_init(ev_tcp_server *, ev_context *, int);
 void ev_tcp_server_listen(ev_tcp_server *, const char *, int, conn_callback);
 void ev_tcp_server_stop(ev_tcp_server *);
 void ev_tcp_server_accept(ev_tcp_server *, ev_tcp_client *, read_callback);
@@ -1001,12 +1025,12 @@ static inline int set_nonblocking(int fd) {
     if (result == -1)
         goto err;
 
-    return 0;
+    return EV_OK;
 
 err:
 
     fprintf(stderr, "set_nonblocking: %s\n", strerror(errno));
-    return -1;
+    return -EV_ERR;
 }
 
 static void on_accept(ev_context *ctx, void *data) {
@@ -1021,10 +1045,14 @@ static void on_read(ev_context *ctx, void *data) {
     client->server->on_read(client);
 }
 
+void ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
+    server->backlog = backlog;
+    server->ctx = ctx;
+    ev_init(server->ctx, EVENTLOOP_MAX_EVENTS);
+}
+
 void ev_tcp_server_listen(ev_tcp_server *server, const char *host,
                           int port, conn_callback on_connection) {
-    // TODO remove
-    server->backlog = 128;
     int listen_fd = -1;
     const struct addrinfo hints = {
         .ai_family = AF_UNSPEC,
@@ -1051,7 +1079,7 @@ void ev_tcp_server_listen(ev_tcp_server *server, const char *host,
 
     freeaddrinfo(result);
     if (rp == NULL)
-        fprintf(stderr, "freeaddrinfo(2): %s\n", strerror(errno));
+        goto err;
 
     /*
      * Let's make the socket non-blocking (strongly advised to use the
@@ -1061,19 +1089,22 @@ void ev_tcp_server_listen(ev_tcp_server *server, const char *host,
 
     /* Finally let's make it listen */
     if (listen(listen_fd, server->backlog) != 0)
-        fprintf(stderr, "listen(2): %s\n", strerror(errno));
+        goto err;
 
     server->sfd = listen_fd;
     snprintf(server->host, strlen(host), "%s", host);
     server->port = port;
-    server->ctx = malloc(sizeof(*server->ctx));
-    ev_init(server->ctx, 32);
     server->on_connection = on_connection;
 
     // Register to service callback
     ev_register_event(server->ctx, server->sfd, EV_READ, on_accept, server);
 
+    /* Blocking call, start the loop here */
     ev_run(server->ctx);
+
+err:
+    fprintf(stderr, "Something went wrong: %s\n", strerror(errno));
+    exit(EXIT_FAILURE);
 }
 
 void ev_tcp_server_accept(ev_tcp_server *server,
@@ -1133,7 +1164,6 @@ void ev_tcp_read(ev_tcp_client *client) {
 void ev_tcp_server_stop(ev_tcp_server *server) {
     ev_del_fd(server->ctx, server->sfd);
     close(server->sfd);
-    free(server);
 }
 
 void ev_tcp_write(ev_tcp_client *client) {

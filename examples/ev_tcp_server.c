@@ -18,7 +18,9 @@ static void on_connection(ev_tcp_server *server) {
 
 int main(void) {
 
+    ev_context *ctx = ev_get_ev_context();
     ev_tcp_server server;
+    ev_tcp_server_init(&server, ctx, 128);
     ev_tcp_server_listen(&server, "127.0.0.1", 5959, on_connection);
     ev_tcp_server_stop(&server);
 
