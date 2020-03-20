@@ -986,6 +986,8 @@ void ev_tcp_server_stop(ev_tcp_server *);
 void ev_tcp_server_accept(ev_tcp_server *, ev_tcp_client *, read_callback);
 void ev_tcp_server_register(ev_tcp_server *, ev_tcp_client *);
 void ev_tcp_read(ev_tcp_client *);
+void ev_tcp_write(ev_tcp_client *);
+void ev_tcp_close_connection(ev_tcp_client *);
 
 /* Set non-blocking socket */
 static inline int set_nonblocking(int fd) {
@@ -1124,16 +1126,40 @@ void ev_tcp_read(ev_tcp_client *client) {
     } while (n > 0);
 
     /* 0 bytes read means disconnection by the client */
-    if (n == 0) {
-        ev_del_fd(client->server->ctx, client->fd);
-        return;
-    }
+    if (n == 0)
+        ev_tcp_close_connection(client);
 }
 
 void ev_tcp_server_stop(ev_tcp_server *server) {
     ev_del_fd(server->ctx, server->sfd);
     close(server->sfd);
     free(server);
+}
+
+void ev_tcp_write(ev_tcp_client *client) {
+    ssize_t n = 0;
+
+    /* Let's reply to the client */
+    while (client->bufsize > 0) {
+        n = write(client->fd, client->buf + n, client->bufsize);
+        if (n == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
+            else
+                return;
+        }
+        client->bufsize -= n;
+    }
+
+    /* Re-arm for read */
+    ev_fire_event(client->server->ctx, client->fd, EV_READ, on_read, client);
+}
+
+void ev_tcp_close_connection(ev_tcp_client *client) {
+    ev_del_fd(client->server->ctx, client->fd);
+    close(client->fd);
+    free(client->buf);
+    free(client);
 }
 
 #endif

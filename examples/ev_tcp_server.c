@@ -4,7 +4,11 @@
 
 static void on_data(ev_tcp_client *client) {
     ev_tcp_read(client);
-    printf("%s\n", client->buf);
+    printf("Received %li bytes\n", client->bufsize);
+    if (strncmp(client->buf, "quit", 4) == 0)
+        ev_tcp_close_connection(client);
+    else
+        ev_tcp_write(client);
 }
 
 static void on_connection(ev_tcp_server *server) {
