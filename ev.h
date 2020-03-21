@@ -1027,6 +1027,10 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
  * =================================
  *  TCP server helper APIs exposed
  * =================================
+ *
+ * A set of basic helpers to create a lightweight event-driven TCP server based
+ * on non-blocking sockets and IO multiplexing using ev as underlying
+ * event-loop.
  */
 
 #define EV_TCP_SUCCESS           0
@@ -1041,6 +1045,19 @@ typedef void (*conn_callback)(ev_tcp_server *);
 typedef void (*recv_callback)(ev_tcp_client *);
 typedef void (*send_callback)(ev_tcp_client *);
 
+/*
+ * Server abstraction, as of now it's pretty self-explanatory, it is composed
+ * of the file descriptor for the listening socket, the backlog to be set on
+ * listen system call, host and port to listen on, a pointer to the context
+ * (must be set) and 3 main callbacks:
+ * - on_connection: Will be triggere when a client contact the server just before
+ *                  accepting a connection
+ * - on_recv:       Generally set inside on_connection callback, define how to
+ *                  react to incoming data from an alredy connected client
+ * - on_send:       Optionally used as responses can be sent directly from
+ *                  on_recv callback through `ev_tcp_write` call, define the
+ *                  behaviour of the server on response to clients
+ */
 struct tcp_server {
     int sfd;
     int backlog;
@@ -1052,11 +1069,17 @@ struct tcp_server {
     send_callback on_send;
 };
 
+/*
+ * Client structure, aside from the obvious members, it carries a server
+ * pointer and an opaque `ptr` for storing arbitrary data, if needed, by the
+ * user
+ */
 struct tcp_client {
     int fd;
     size_t bufsize;
     size_t capacity;
     char *buf;
+    void *ptr;
     ev_tcp_server *server;
 };
 
@@ -1211,6 +1234,7 @@ int ev_tcp_server_accept(ev_tcp_server *server,
         client->bufsize = 0;
         client->capacity = EV_TCP_BUFSIZE;
         client->buf = calloc(1, EV_TCP_BUFSIZE);
+        client->ptr = NULL;
         client->server = server;
 
         int err = ev_register_event(server->ctx, fd, EV_READ, on_recv, client);
