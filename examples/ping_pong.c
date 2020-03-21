@@ -5,14 +5,14 @@
 #define PONG_SECONDS 5
 
 static void ping(ev_context *ctx, void *data) {
-    (void) ctx;
-    (void) data;
+    (void) ctx;  // unused
+    (void) data; // unused
     printf("Ping\n");
 }
 
 static void pong(ev_context *ctx, void *data) {
-    (void) ctx;
-    (void) data;
+    (void) ctx;  // unused
+    (void) data; // unused
     printf("Pong\n");
 }
 

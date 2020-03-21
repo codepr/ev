@@ -9,5 +9,7 @@ ping-pong: examples/ping_pong.c ev.h
 ev-tcp-server: examples/ev_tcp_server.c ev.h
 	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE examples/ev_tcp_server.c -o ev_tcp_server
 
+ev-tcp-server-stats: examples/ev_tcp_server_stats.c ev.h
+	$(CC) $(CFLAGS) -D_DEFAULT_SOURCE examples/ev_tcp_server_stats.c -o ev_tcp_server_stats
 clean:
-	@rm echo_server ping_pong ev_tcp_server
+	@rm echo_server ping_pong ev_tcp_server ev_tcp_server_stats
