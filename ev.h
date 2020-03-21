@@ -76,8 +76,8 @@
  */
 #define EVENTLOOP_TIMEOUT       -1
 
-#define EV_OK  0
-#define EV_ERR 1
+#define EV_OK   0
+#define EV_ERR  -1
 
 /*
  * Event types, meant to be OR-ed on a bitmask to define the type of an event
@@ -376,7 +376,7 @@ static int ev_api_poll(ev_context *ctx, time_t timeout) {
     struct poll_api *p_api = ctx->api;
     int err = poll(p_api->fds, p_api->nfds, timeout);
     if (err < 0)
-        return -EV_ERR;
+        return EV_ERR;
     return p_api->nfds;
 }
 
@@ -529,7 +529,7 @@ static int ev_api_poll(ev_context *ctx, time_t timeout) {
     memcpy(&s_api->_wfds, &s_api->wfds, sizeof(fd_set));
     int err = select(ctx->maxfd + 1, &s_api->_rfds, &s_api->_wfds, NULL, tv);
     if (err < 0)
-        return -EV_ERR;
+        return EV_ERR;
     return ctx->maxfd + 1;
 }
 
@@ -641,7 +641,7 @@ static int ev_api_poll(ev_context *ctx, time_t timeout) {
     int err = kevent(k_api->fd, NULL, 0,
                      k_api->events, ctx->maxevents, &ts_timeout);
     if (err < 0)
-        return -EV_ERR;
+        return EV_ERR;
     return err;
 }
 
@@ -655,7 +655,7 @@ static int ev_api_del_fd(ev_context *ctx, int fd) {
     if (ev_mask & EV_TIMERFD) mask |= EVFILT_TIMER;
     EV_SET(&ke, fd, mask, EV_DELETE, 0, 0, NULL);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
-        return -EV_ERR;
+        return EV_ERR;
     return EV_OK;
 }
 
@@ -667,7 +667,7 @@ static int ev_api_register_event(ev_context *ctx, int fd, int mask) {
     if (mask & EV_WRITE) op |= EVFILT_WRITE;
     EV_SET(&ke, fd, op, EV_ADD, 0, 0, NULL);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
-        return -EV_ERR;
+        return EV_ERR;
     return EV_OK;
 }
 
@@ -683,7 +683,7 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
     if (mask & EV_WRITE) op |= EVFILT_WRITE;
     EV_SET(&ke, fd, op, EV_ADD | EV_ENABLE, 0, 0, NULL);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
-        return -EV_ERR;
+        return EV_ERR;
     return EV_OK;
 }
 
@@ -942,7 +942,7 @@ int ev_register_event(ev_context *ctx, int fd, int mask,
     ev_add_monitored(ctx, fd, mask, callback, data);
     int ret = 0;
     ret = ev_api_register_event(ctx, fd, mask);
-    if (ret < 0) return -EV_ERR;
+    if (ret < 0) return EV_ERR;
     if (mask & EV_EVENTFD)
 #ifdef __linux__
         (void) eventfd_write(fd, 1);
@@ -972,7 +972,7 @@ int ev_register_cron(ev_context *ctx,
     int timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
 
     if (timerfd_settime(timerfd, 0, &timer, NULL) < 0)
-        return -EV_ERR;
+        return EV_ERR;
 
     // Add the timer to the event loop
     ev_add_monitored(ctx, timerfd, EV_TIMERFD|EV_READ, callback, data);
@@ -986,7 +986,7 @@ int ev_register_cron(ev_context *ctx,
     struct kevent ke;
     EV_SET(&ke, fd, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, period, 0);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
-        return -EV_ERR;
+        return EV_ERR;
     return EV_OK;
 #endif // __linux__
 }
@@ -1011,14 +1011,14 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
     int ret = 0;
     ev_add_monitored(ctx, fd, mask, callback, data);
     ret = ev_api_fire_event(ctx, fd, mask);
-    if (ret < 0) return -EV_ERR;
+    if (ret < 0) return EV_ERR;
     if (mask & EV_EVENTFD) {
 #ifdef __linux__
         ret = eventfd_write(fd, 1);
 #else
         ret = write(fd, &(unsigned long){1}, sizeof(unsigned long));
 #endif // __linux__
-        if (ret < 0) return -EV_ERR;
+        if (ret < 0) return EV_ERR;
     }
     return EV_OK;
 }
@@ -1089,7 +1089,7 @@ static inline int set_nonblocking(int fd) {
 err:
 
     fprintf(stderr, "set_nonblocking: %s\n", strerror(errno));
-    return -EV_ERR;
+    return EV_ERR;
 }
 
 static void on_accept(ev_context *ctx, void *data) {
