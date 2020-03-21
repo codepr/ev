@@ -2,7 +2,7 @@ EV
 ==
 
 Light event-loop library loosely inspired by the excellent libuv, in a single
-**small** (< 800 sloc) header, based on the common IO multiplexing
+**small** (< 1000 sloc) header, based on the common IO multiplexing
 imlementations available, epoll on linux, kqueue on BSD-like and OSX,
 poll/select as a fallback, dependencies-free.
 
@@ -58,3 +58,4 @@ int main(void) {
 
 - UDP helper APIs
 - TLS setup
+- Improve error handling
