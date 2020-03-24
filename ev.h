@@ -1500,7 +1500,7 @@ void ev_tcp_server_stop(ev_tcp_server *server) {
 #if defined(EPOLL) || defined(__linux__)
     eventfd_write(server->run, 1);
 #else
-    (void) write(server->run, &(unsigned long){1}, sizeof(unsigned long));
+    (void) write(server->run[0], &(unsigned long){1}, sizeof(unsigned long));
 #endif
 }
 
