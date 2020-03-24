@@ -183,6 +183,12 @@ struct ev {
 void ev_init(ev_context *, int);
 
 /*
+ * Just check if the ev_context is running, return 0 if it's not running, 1
+ * otherwise
+ */
+int ev_is_running(const ev_context *);
+
+/*
  * By design ev library can instantiate a default `ev_context`, calling
  * `ev_get_ev_context` the first time will create the loop as a singleton,
  * subsequent calls will retrieve the same first context allocated
@@ -904,6 +910,10 @@ void ev_init(ev_context *ctx, int events_nr) {
     ctx->events_monitored = calloc(events_nr, sizeof(struct ev));
 }
 
+int ev_is_running(const ev_context *ctx) {
+    return ctx->is_running;
+}
+
 void ev_destroy(ev_context *ctx) {
     for (int i = 0; i < ctx->maxevents; ++i) {
         if (!(ctx->events_monitored[i].mask & EV_CLOSEFD) &&
@@ -1107,6 +1117,7 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
 #define EV_TCP_SUCCESS           0
 #define EV_TCP_FAILURE          -1
 #define EV_TCP_MISSING_CALLBACK -2
+#define EV_TCP_MISSING_CONTEXT  -3
 
 /*
  * Default buffer size for connecting client, can be changed on the host
@@ -1186,11 +1197,12 @@ struct tcp_client {
 /*
  * Sets the tcp backlog and the ev_context reference to an ev_tcp_server,
  * setting to NULL the 3 main actions callbacks.
+ * The ev_context have to be alredy initialized or it returns an error.
  * Up to the caller to decide how to create the ev_tcp_server and thus manage,
  * its ownership and memory lifetime by allocating it on the heap or the
  * stack
  */
-void ev_tcp_server_init(ev_tcp_server *, ev_context *, int);
+int ev_tcp_server_init(ev_tcp_server *, ev_context *, int);
 
 /*
  * Make the tcp server in listening mode, requires an on_connection callback to
@@ -1317,7 +1329,9 @@ static void on_stop(ev_context *ctx, void *data) {
     ctx->stop = 1;
 }
 
-void ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
+int ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
+    if (!ctx)
+        return EV_TCP_MISSING_CONTEXT;
     server->backlog = backlog;
     // TODO check for context running
     server->ctx = ctx;
@@ -1333,6 +1347,7 @@ void ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
     server->on_connection = NULL;
     server->on_recv = NULL;
     server->on_send = NULL;
+    return EV_OK;
 }
 
 void ev_tcp_server_set_on_recv(ev_tcp_server *server, recv_callback on_recv) {
@@ -1401,6 +1416,8 @@ err:
 }
 
 void ev_tcp_server_run(ev_tcp_server *server) {
+    if (ev_is_running(server->ctx) == 1)
+        return;
     // Blocking call
     ev_run(server->ctx);
 }
