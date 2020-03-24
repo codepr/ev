@@ -66,16 +66,19 @@
 
 /*
  * Maximum number of events to monitor at a time, useful for epoll and poll
- * calls, the value represents the length of the events array
+ * calls, the value represents the length of the events array. Tweakable value.
  */
 #define EVENTLOOP_MAX_EVENTS    1024
 
 /*
  * The timeout to wait before returning on the blocking call that every IO mux
- * implementation accepts, -1 means block forever untill new events arrive
+ * implementation accepts, -1 means block forever until new events arrive.
+ * Tweakable value.
  */
 #define EVENTLOOP_TIMEOUT       -1
 
+/*
+ * Return codes */
 #define EV_OK   0
 #define EV_ERR  -1
 
@@ -96,13 +99,18 @@ enum ev_type {
 /*
  * Event loop context, carry the expected number of events to be monitored at
  * every cycle and an opaque pointer to the backend used as engine
- * (Select | Epoll | Kqueue).
- * By now we stick with epoll and skip over select, cause as the current
- * threaded model employed by the server is not very friendly with select
- * Level-trigger default setting. But it would be quiet easy abstract over the
- * select model as well for single threaded uses or in a loop per thread
- * scenario (currently thanks to epoll Edge-triggered + EPOLLONESHOT we can
- * share a single loop over multiple threads).
+ * (select | poll | epoll | kqueue).
+ * At start, the library tries to infer the multiplexing IO implementation
+ * available on the host machine, `void *api` will carry the API-dedicated
+ * struct as a rudimentary form of polymorphism.
+ * The context is the main handler of the event loop and is meant to be passed
+ * around on each callback fired during the execution of the host application.
+ *
+ * Idealy it should be at most one context per thread, it's the user's duty to
+ * take care of locking of possible shared parts and datastrutures but it's
+ * definetly a possibility to run multiple theads each one with his own loop,
+ * depending on the scenario, use-case by use-case it can be a feasible
+ * solutiion.
  */
 typedef struct ev_ctx {
     int events_nr;
@@ -128,44 +136,51 @@ struct ev {
     void (*wcallback)(ev_context *, void *); // write callback
 };
 
-void ev_init(struct ev_ctx *, int);
+/*
+ * Initialize the ev_context, accepting the number of events to monitor; that
+ * value is indicative as if a FD exceeds the cap set the events array will be
+ * resized.
+ * The first thing done is the initialization of the api pointer according to
+ * the Mux IO backend found on the host machine
+ */
+void ev_init(ev_context *, int);
 
 ev_context *ev_get_ev_context(void);
 
-void ev_destroy(struct ev_ctx *);
+void ev_destroy(ev_context *);
 
 /*
  * Poll an event context for events, accepts a timeout or block forever,
  * returning only when a list of FDs are ready to either READ, WRITE or TIMER
  * to be executed.
  */
-int ev_poll(struct ev_ctx *, time_t);
+int ev_poll(ev_context *, time_t);
 
 /*
  * Blocks forever in a loop polling for events with ev_poll calls. At every
  * cycle executes callbacks registered with each event
  */
-int ev_run(struct ev_ctx *);
+int ev_run(ev_context *);
 
 /*
  * Trigger a stop on a running event, it's meant to be run as an event in a
  * running ev_ctx
  */
-void ev_stop(struct ev_ctx *);
+void ev_stop(ev_context *);
 
 /*
  * Add a single FD to the underlying backend of the event loop. Equal to
  * ev_fire_event just without an event to be carried. Useful to add simple
  * descritors like a listening socket o message queue FD.
  */
-int ev_watch_fd(struct ev_ctx *, int, int);
+int ev_watch_fd(ev_context *, int, int);
 
 /*
  * Remove a FD from the loop, even tho a close syscall is sufficient to remove
  * the FD from the underlying backend such as EPOLL/SELECT, this call ensure
  * that any associated events is cleaned out an set to EV_NONE
  */
-int ev_del_fd(struct ev_ctx *, int);
+int ev_del_fd(ev_context *, int);
 
 /*
  * Register a new event, semantically it's equal to ev_register_event but
@@ -173,11 +188,11 @@ int ev_del_fd(struct ev_ctx *, int);
  * It could be easily integrated in ev_fire_event call but I prefer maintain
  * the samantic separation of responsibilities.
  */
-int ev_register_event(struct ev_ctx *, int, int,
-                      void (*callback)(struct ev_ctx *, void *), void *);
+int ev_register_event(ev_context *, int, int,
+                      void (*callback)(ev_context *, void *), void *);
 
-int ev_register_cron(struct ev_ctx *,
-                     void (*callback)(struct ev_ctx *, void *),
+int ev_register_cron(ev_context *,
+                     void (*callback)(ev_context *, void *),
                      void *,
                      long long, long long);
 
@@ -185,8 +200,8 @@ int ev_register_cron(struct ev_ctx *,
  * Register a new event for the next loop cycle to a FD. Equal to ev_watch_fd
  * but allow to carry an event object for the next cycle.
  */
-int ev_fire_event(struct ev_ctx *, int, int,
-                  void (*callback)(struct ev_ctx *, void *), void *);
+int ev_fire_event(ev_context *, int, int,
+                  void (*callback)(ev_context *, void *), void *);
 
 #if defined(EPOLL)
 
