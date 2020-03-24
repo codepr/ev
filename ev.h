@@ -1091,18 +1091,48 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
  * A set of basic helpers to create a lightweight event-driven TCP server based
  * on non-blocking sockets and IO multiplexing using ev as underlying
  * event-loop.
+ *
+ * As of now it's stll very simple, the only tweakable value is the buffer
+ * memory size for incoming and to-be-written stream of bytes for clients, the
+ * default value is 2048.
+ *
+ * #define EV_TCP_BUFSIZE 2048
  */
 
 #define EV_TCP_SUCCESS           0
 #define EV_TCP_FAILURE          -1
 #define EV_TCP_MISSING_CALLBACK -2
 
+/*
+ * Default buffer size for connecting client, can be changed on the host
+ * application
+ */
 #define EV_TCP_BUFSIZE           2048
 
 typedef struct tcp_server ev_tcp_server;
 typedef struct tcp_client ev_tcp_client;
+
+/*
+ * Core actions of a ev_tcp_server, callbacks to be executed at each of these
+ * events happening
+ */
+
+/*
+ * On new connection callback, defines the behaviour of the application when a
+ * new client connects
+ */
 typedef void (*conn_callback)(ev_tcp_server *);
+
+/*
+ * On data incoming from an already connected client callback, defines what the
+ * application must do with the stream of bytes received by a connected client
+ */
 typedef void (*recv_callback)(ev_tcp_client *);
+
+/*
+ * On write callback, once the application receives and process a bunch of
+ * bytes, this defines what and how to do with the response to be sent out
+ */
 typedef void (*send_callback)(ev_tcp_client *);
 
 /*
@@ -1120,6 +1150,11 @@ typedef void (*send_callback)(ev_tcp_client *);
  */
 struct tcp_server {
     int sfd;
+#if defined(EPOLL) || defined(__linux__)
+    int run;
+#else
+    int run[2];
+#endif
     int backlog;
     int port;
     char host[0xff];
@@ -1143,16 +1178,93 @@ struct tcp_client {
     ev_tcp_server *server;
 };
 
+/*
+ * Sets the tcp backlog and the ev_context reference to an ev_tcp_server,
+ * setting to NULL the 3 main actions callbacks.
+ * Up to the caller to decide how to create the ev_tcp_server and thus manage,
+ * its ownership and memory lifetime by allocating it on the heap or the
+ * stack
+ */
 void ev_tcp_server_init(ev_tcp_server *, ev_context *, int);
+
+/*
+ * Make the tcp server in listening mode, requires an on_connection callback to
+ * be defined and passed as argument or it will return an error.
+ * Under the hood the listening socket created is set to non-blocking mode and
+ * registered to the ev_tcp_server context as an EV_READ event with
+ * `conn_callback` as a read-callback to be called on reading-ready event by
+ * the kernel.
+ */
 int ev_tcp_server_listen(ev_tcp_server *, const char *, int, conn_callback);
+
+/*
+ * Stops a listening ev_tcp_server by removing it's listening socket from the
+ * underlying running loop and closing it, finally it stops the underlying
+ * eventloop
+ */
 void ev_tcp_server_stop(ev_tcp_server *);
+
+/*
+ * Start the tcp server, it's a blocking call that calls ev_run on the
+ * underlyng ev_context
+ */
+void ev_tcp_server_run(ev_tcp_server *);
+
+/*
+ * Accept the connection, requires a pointer to ev_tcp_client and a on_recv
+ * callback, othersiwse it will return an err. Up to the user to manage the
+ * ownership of the client, tough generally it's advisable to allocate it on
+ * the heap to being able to juggle it around other callbacks
+ */
 int ev_tcp_server_accept(ev_tcp_server *, ev_tcp_client *, recv_callback);
+
+/*
+ * Fires a EV_WRITE event using a service private function to just write the
+ * content of the buffer to the client, return an error if no on_send callback
+ * was set, see `ev_tcp_server_set_on_send`
+ */
 int ev_tcp_server_enqueue_write(ev_tcp_client *);
+
+/*
+ * Sets an on_recv callback to be called with new incoming data arriving from
+ * the client
+ */
 void ev_tcp_server_set_on_recv(ev_tcp_server *, recv_callback);
+
+/*
+ * Sets an on_send callback to be called with new outcoming data to be sent to
+ * the client
+ */
 void ev_tcp_server_set_on_send(ev_tcp_server *, send_callback);
+
+/*
+ * Read all the incoming bytes on the connected client FD and store the to the
+ * client buffer along with the total size read.
+ *
+ * TODO
+ * It's a non-blocking read so must check for EAGAIN errors on partial reads
+ */
 ssize_t ev_tcp_read(ev_tcp_client *);
+
+/*
+ * Write the content of the client buffer to the connected client FD and reset
+ * the client buffer length to according to the numeber of bytes sent out.
+ *
+ * TODO
+ * It's a non-blocking write so must check for EAGAIN errors on partia writes
+ */
 ssize_t ev_tcp_write(ev_tcp_client *);
+
+/*
+ * Close a connection by removing the client FD from the underlying ev_context
+ * and closing it, free all resources allocated
+ */
 void ev_tcp_close_connection(ev_tcp_client *);
+
+/*
+ * Just a simple helper function to retrieve a text explanation of the common
+ * errors returned by the helper APIs
+ */
 const char *ev_tcp_err(int);
 
 /* Set non-blocking socket */
@@ -1193,9 +1305,26 @@ static void on_send(ev_context *ctx, void *data) {
     client->server->on_send(client);
 }
 
+static void on_stop(ev_context *ctx, void *data) {
+    (void) ctx;
+    (void) data;
+    printf("Stop\n");
+    ctx->stop = 1;
+}
+
 void ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
     server->backlog = backlog;
+    // TODO check for context running
     server->ctx = ctx;
+#if defined(EPOLL) || defined(__linux__)
+    server->run = eventfd(0, EFD_NONBLOCK);
+    ev_register_event(server->ctx, server->run,
+                      EV_CLOSEFD|EV_READ, on_stop, NULL);
+#else
+    pipe(server->run);
+    ev_register_event(server->ctx, server->run[1],
+                      EV_CLOSEFD|EV_READ, on_stop, NULL);
+#endif
     server->on_connection = NULL;
     server->on_recv = NULL;
     server->on_send = NULL;
@@ -1261,12 +1390,14 @@ int ev_tcp_server_listen(ev_tcp_server *server, const char *host,
     // Register to service callback
     ev_register_event(server->ctx, server->sfd, EV_READ, on_accept, server);
 
-    /* Blocking call, start the loop here */
-    ev_run(server->ctx);
-
     return EV_TCP_SUCCESS;
 err:
     return EV_TCP_FAILURE;
+}
+
+void ev_tcp_server_run(ev_tcp_server *server) {
+    // Blocking call
+    ev_run(server->ctx);
 }
 
 int ev_tcp_server_accept(ev_tcp_server *server,
@@ -1344,6 +1475,11 @@ ssize_t ev_tcp_read(ev_tcp_client *client) {
 void ev_tcp_server_stop(ev_tcp_server *server) {
     ev_del_fd(server->ctx, server->sfd);
     close(server->sfd);
+#if defined(EPOLL) || defined(__linux__)
+    eventfd_write(server->run, 1);
+#else
+    (void) write(server->run, &(unsigned long){1}, sizeof(unsigned long));
+#endif
 }
 
 ssize_t ev_tcp_write(ev_tcp_client *client) {

@@ -50,6 +50,10 @@ int main(void) {
     ev_tcp_server server;
     ev_tcp_server_init(&server, ctx, 128);
     ev_tcp_server_listen(&server, "127.0.0.1", 5959, on_connection);
+    // Blocking call
+    ev_tcp_server_run(&server);
+    // This could be registered to a SIGINT|SIGTERM signal notification
+    // to stop the server with Ctrl+C
     ev_tcp_server_stop(&server);
 
     return 0;

@@ -40,6 +40,12 @@ int main(void) {
         else
             fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
     }
+
+    // Blocking call
+    ev_tcp_server_run(&server);
+
+    // This could be registered to a SIGINT|SIGTERM signal notification
+    // to stop the server with Ctrl+C
     ev_tcp_server_stop(&server);
 
     return 0;
