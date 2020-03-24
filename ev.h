@@ -78,7 +78,7 @@
 #endif
 
 #elif defined(__APPLE__) || defined(__FreeBSD__) \
-       || defined(__OpenBSD__) || defined (__NetBSD__)
+    || defined(__OpenBSD__) || defined (__NetBSD__)
 #define KQUEUE 1
 #define EVENTLOOP_BACKEND "kqueue"
 #else
@@ -153,6 +153,7 @@ typedef struct ev_ctx {
     int maxfd; // the maximum FD monitored by the event context,
                // events_monitored must be at least maxfd long
     int stop;
+    int is_running;
     int maxevents;
     unsigned long long fired_events;
     struct ev *events_monitored;
@@ -897,6 +898,7 @@ void ev_init(ev_context *ctx, int events_nr) {
     ev_api_init(ctx, events_nr);
     ctx->stop = 0;
     ctx->fired_events = 0;
+    ctx->is_running = 0;
     ctx->maxevents = events_nr;
     ctx->events_nr = events_nr;
     ctx->events_monitored = calloc(events_nr, sizeof(struct ev));
@@ -908,6 +910,7 @@ void ev_destroy(ev_context *ctx) {
             ctx->events_monitored[i].mask != EV_NONE)
             ev_del_fd(ctx, ctx->events_monitored[i].fd);
     }
+    ctx->is_running = 0;
     free(ctx->events_monitored);
     ev_api_destroy(ctx);
 }
@@ -931,6 +934,7 @@ int ev_run(ev_context *ctx) {
      * Start an infinite loop, can be stopped only by scheduling an ev_stop
      * callback or if an error on the underlying backend occur
      */
+    ctx->is_running = 1;
     while (!ctx->stop) {
         /*
          * blocks polling for events, -1 means forever. Returns only in case of
@@ -957,7 +961,8 @@ int ev_run(ev_context *ctx) {
  * running ev_ctx
  */
 void ev_stop(ev_context *ctx) {
-   ctx->stop = 1;
+    ctx->is_running = 0;
+    ctx->stop = 1;
 }
 
 /*
