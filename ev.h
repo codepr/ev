@@ -25,6 +25,42 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * EV_H is a single header library that offers a set of APIs to create and
+ * handle a very lightweight event-loop based on the most common IO
+ * multiplexing implementations available on Unix-based systems:
+ *
+ * - Linux-based: epoll
+ * - BSD-based (osx): kqueue
+ * - All around: poll, select
+ *
+ * By setting a pre-processor macro definition it's possible to force the use
+ * of a wanted implementation.
+ *
+ * #define EPOLL  1   // set to use epoll
+ * #define KQUEUE 1   // set to use kqueue
+ * #define POLL   1   // set to use poll
+ * #define SELECT 1   // set to use select
+ *
+ * There's another 2 possible tweakable values, the number of events to monitor
+ * at once, which is set to 1024 by default
+ *
+ * #define EVENTLOOP_MAX_EVENTS    1024
+ *
+ * The timeout in ms to wait before returning on the blocking call that every
+ * IO mux implementation accepts, -1 means block forever until new events
+ * arrive.
+ * #define EVENTLOOP_TIMEOUT       -1
+ *
+ * Exposed APIs si divided in generic loop management and TCP server helpers as
+ * the most common (but not the only) use cases for this event-loop libraries
+ * in general.
+ * Please refers to `examples` directory to see some common uses, in particular
+ * `echo_server.c` and `ping_pong.c` highlight two simple cases where the
+ * genric APIs are employed, `ev_tcp_server.c` instead show how to implement a
+ * trivial TCP server using helpers.
+ */
+
 #ifndef EV_H
 #define EV_H
 
@@ -145,8 +181,17 @@ struct ev {
  */
 void ev_init(ev_context *, int);
 
+/*
+ * By design ev library can instantiate a default `ev_context`, calling
+ * `ev_get_ev_context` the first time will create the loop as a singleton,
+ * subsequent calls will retrieve the same first context allocated
+ */
 ev_context *ev_get_ev_context(void);
 
+/*
+ * Call custom destroy function based on the api type set up calling `ev_init`
+ * and de-allocate all events monitored memory
+ */
 void ev_destroy(ev_context *);
 
 /*
