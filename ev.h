@@ -1264,6 +1264,11 @@ void ev_tcp_server_set_on_send(ev_tcp_server *, send_callback);
 ssize_t ev_tcp_read(ev_tcp_client *);
 
 /*
+ * Read the defined number of bytes in order to fill the buffer of n bytes
+ */
+ssize_t ev_tcp_read_bytes(ev_tcp_client *, size_t);
+
+/*
  * Write the content of the client buffer to the connected client FD and reset
  * the client buffer length to according to the numeber of bytes sent out.
  *
@@ -1494,6 +1499,41 @@ ssize_t ev_tcp_read(ev_tcp_client *client) {
     return client->bufsize;
 }
 
+ssize_t ev_tcp_read_bytes(ev_tcp_client *client, size_t size) {
+    ssize_t n = 0;
+    /* Read incoming stream of bytes */
+    do {
+        n = read(client->fd, client->buf + client->bufsize,
+                 size - client->bufsize);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
+            else
+                return n;
+        }
+        client->bufsize += n;
+        /* Re-size the buffer in case of overflow of bytes */
+        if (client->bufsize == client->capacity) {
+            client->capacity *= 2;
+            client->buf = realloc(client->buf, client->capacity);
+        }
+    } while (n > 0);
+
+    /*
+     * If EAGAIN happened and there still more data to read, re-arm
+     * for a read on the next loop cycle, hopefully the kernel will be
+     * available to send remaining data
+     */
+    if (client->bufsize < size && (errno == EAGAIN || errno == EWOULDBLOCK))
+        ev_fire_event(client->server->ctx, client->fd, EV_READ, on_recv, client);
+
+    /* 0 bytes read means disconnection by the client */
+    if (n == 0)
+        ev_tcp_close_connection(client);
+
+    return client->bufsize;
+}
+
 void ev_tcp_server_stop(ev_tcp_server *server) {
     ev_del_fd(server->ctx, server->sfd);
     close(server->sfd);
@@ -1522,13 +1562,27 @@ ssize_t ev_tcp_write(ev_tcp_client *client) {
 
     if (!client->server->on_recv)
         return EV_TCP_MISSING_CALLBACK;
+
+    /*
+     * If EAGAIN happened and there still more data to be written out, re-arm
+     * for a write on the next loop cycle, hopefully the kernel will be
+     * available to send remaining data
+     */
+    if (client->bufsize > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        ev_fire_event(client->server->ctx, client->fd, EV_WRITE, on_send, client);
+        goto err;
+    }
+
     /* Re-arm for read */
     int err = ev_fire_event(client->server->ctx,
                             client->fd, EV_READ, on_recv, client);
     if (err < 0)
-        return EV_TCP_FAILURE;
+        goto err;
 
     return wrote;
+
+err:
+    return EV_TCP_FAILURE;
 }
 
 void ev_tcp_close_connection(ev_tcp_client *client) {
