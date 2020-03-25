@@ -1125,11 +1125,13 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
  */
 #define EV_TCP_BUFSIZE           2048
 
-typedef struct tcp_server ev_tcp_server;
+typedef struct ev_server ev_tcp_server;
 typedef struct tcp_client ev_tcp_client;
+typedef struct ev_server ev_udp_server;
+typedef struct udp_client ev_udp_client;
 
 /*
- * Core actions of a ev_tcp_server, callbacks to be executed at each of these
+ * Core actions of a ev_server, callbacks to be executed at each of these
  * events happening
  */
 
@@ -1164,7 +1166,7 @@ typedef void (*send_callback)(ev_tcp_client *);
  *                  on_recv callback through `ev_tcp_write` call, define the
  *                  behaviour of the server on response to clients
  */
-struct tcp_server {
+struct ev_server {
     int sfd;
 #if defined(EPOLL) || defined(__linux__)
     int run;
@@ -1189,9 +1191,23 @@ struct tcp_client {
     int fd;
     size_t bufsize;
     size_t capacity;
-    char *buf;
     void *ptr;
+    char *buf;
     ev_tcp_server *server;
+};
+
+/*
+ * UDP client structure, conceptually it's equivalent to the `tcp_client` one
+ * but it must store also a `struct sockaddr` for the sender/destinatary address
+ */
+struct udp_client {
+    int fd;
+    size_t bufsize;
+    size_t capacity;
+    struct sockaddr addr;
+    void *ptr;
+    char *buf;
+    ev_udp_server *server;
 };
 
 /*
@@ -1309,6 +1325,13 @@ err:
     return EV_ERR;
 }
 
+/*
+ * ===================================================================
+ *  Service private callbacks, acts as a bridge for scheudling server
+ *  callbacks
+ * ===================================================================
+ */
+
 static void on_accept(ev_context *ctx, void *data) {
     (void) ctx;
     ev_tcp_server *server = data;
@@ -1333,6 +1356,12 @@ static void on_stop(ev_context *ctx, void *data) {
     printf("Stop\n");
     ctx->stop = 1;
 }
+
+/*
+ * =================
+ *  APIs definition
+ * =================
+ */
 
 int ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
     if (!ctx)
