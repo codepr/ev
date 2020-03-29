@@ -60,6 +60,8 @@ int main(void) {
 }
 ```
 
+Take a look to `examples/` directory for more snippets.
+
 ## Roadmap
 
 - UDP helper APIs
