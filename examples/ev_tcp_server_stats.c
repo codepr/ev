@@ -56,6 +56,12 @@ int main(void) {
         else
             fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
     }
+
+    printf("Listening on %s:%i\n", HOST, PORT);
+
+    // Blocking call
+    ev_tcp_server_run(&server);
+
     ev_tcp_server_stop(&server);
 
     return 0;

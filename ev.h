@@ -1252,6 +1252,13 @@ void ev_tcp_server_run(ev_tcp_server *);
 int ev_tcp_server_accept(ev_tcp_server *, ev_tcp_client *, recv_callback);
 
 /*
+ * Fires an EV_READ event using a service private function to just read the
+ * incoming stream of data from a client into the buffer, return an error if no
+ * on_recv callback was set, see `ev_tcp_server_set_on_recv`
+ */
+int ev_tcp_server_enqueue_read(ev_tcp_client *);
+
+/*
  * Fires a EV_WRITE event using a service private function to just write the
  * content of the buffer to the client, return an error if no on_send callback
  * was set, see `ev_tcp_server_set_on_send`
@@ -1496,6 +1503,16 @@ int ev_tcp_server_enqueue_write(ev_tcp_client *client) {
         return EV_TCP_MISSING_CALLBACK;
     int err = ev_fire_event(client->server->ctx,
                             client->fd, EV_WRITE, on_send, client);
+    if (err < 0)
+        return EV_TCP_FAILURE;
+    return EV_TCP_SUCCESS;
+}
+
+int ev_tcp_server_enqueue_read(ev_tcp_client *client) {
+    if (!client->server->on_recv)
+        return EV_TCP_MISSING_CALLBACK;
+    int err = ev_fire_event(client->server->ctx,
+                            client->fd, EV_READ, on_recv, client);
     if (err < 0)
         return EV_TCP_FAILURE;
     return EV_TCP_SUCCESS;
