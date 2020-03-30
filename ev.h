@@ -1360,7 +1360,6 @@ static void on_send(ev_context *ctx, void *data) {
 static void on_stop(ev_context *ctx, void *data) {
     (void) ctx;
     (void) data;
-    printf("Stop\n");
     ctx->stop = 1;
 }
 
