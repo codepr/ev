@@ -33,7 +33,7 @@ Lightweight event-driven hello world TCP server
 ```c
 #include <stdio.h>
 #include <stdlib.h>
-#include "../ev.h"
+#include "../ev_tcp.h"
 
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
@@ -56,7 +56,13 @@ int main(void) {
     ev_tcp_server server;
     ev_tcp_server_init(&server, ctx, 128);
     // To set TLS using OpenSSL
-    // ev_tcp_server_set_tls(&server, CA, CERT, KEY);
+    // struct ev_tls_options tls_opt = {
+    //     .ca = CA,
+    //     .cert = CERT,
+    //     .key = KEY
+    // };
+    // tls_opt.protocols = EV_TLSv1_2|EV_TLSv1_3;
+    // ev_tcp_server_set_tls(&server, &tls_opt);
     ev_tcp_server_listen(&server, "127.0.0.1", 5959, on_connection);
     // Blocking call
     ev_tcp_server_run(&server);
