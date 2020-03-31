@@ -126,6 +126,12 @@ struct ev_connection {
 
 #ifdef HAVE_OPENSSL
 
+// TLS version that can be enabled, if OpenSSL version supports them clearly
+#define EV_TLSv1       0x01
+#define EV_TLSv1_1     0x02
+#define EV_TLSv1_2     0x04
+#define EV_TLSv1_3     0x08
+
 typedef struct ev_tls_connection ev_tls_connection;
 
 /*
@@ -135,6 +141,18 @@ typedef struct ev_tls_connection ev_tls_connection;
 struct ev_tls_connection {
     ev_connection c;
     SSL *ssl;
+};
+
+/*
+ * Options structure for TLS set function, carries CA, cert and key paths as
+ * well as the expected supported TLS versions, specifying them by or'ing
+ * EV_TLSv* values on the protocols member
+ */
+struct ev_tls_options {
+    char *ca;
+    char *cert;
+    char *key;
+    int protocols;
 };
 
 #endif
@@ -269,6 +287,12 @@ ssize_t ev_tls_tcp_read(ev_tcp_handle *);
  * on the buffer before sending it out through TCP
  */
 ssize_t ev_tls_tcp_write(ev_tcp_handle *);
+
+/*
+ * Enable TLS on a server, loading certificate authority, certificates PEM, and
+ * certificate key from the filesystem, specifying their path
+ */
+void ev_tcp_server_set_tls(ev_tcp_server *, const struct ev_tls_options *);
 
 #endif
 
@@ -434,7 +458,7 @@ static void openssl_cleanup() {
     EVP_cleanup();
 }
 
-static SSL_CTX *ssl_ctx_new(void) {
+static SSL_CTX *ssl_ctx_new(int protocols) {
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000
     // TLS_server_method has been added with OpenSSL version > 1.1.0
@@ -452,8 +476,18 @@ static SSL_CTX *ssl_ctx_new(void) {
     SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
     SSL_CTX_set_options(ssl_ctx, SSL_OP_SINGLE_DH_USE);
 
-    // TLSv1_2
-    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_2);
+    if (!(protocols & EV_TLSv1))
+        SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1);
+    if (!(protocols & EV_TLSv1_1))
+        SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_1);
+#ifdef SSL_OP_NO_TLSv1_2
+    if (!(protocols & EV_TLSv1_2))
+        SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_2);
+#endif
+#ifdef SSL_OP_NO_TLSv1_3
+    if (!(protocols & EV_TLSv1_3))
+        SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_3);
+#endif
 
 #ifdef SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS
     SSL_CTX_set_options(ssl_ctx, SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS);
@@ -462,8 +496,9 @@ static SSL_CTX *ssl_ctx_new(void) {
     SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_COMPRESSION);
 #endif
 #ifdef SSL_OP_NO_CLIENT_RENEGOTIATION
-    SSL_CTX_set_options(ssl->ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
 #endif
+
     return ssl_ctx;
 }
 
@@ -772,12 +807,12 @@ const char *ev_tcp_err(int rc) {
 
 #ifdef HAVE_OPENSSL
 
-void ev_tcp_server_set_tls(ev_tcp_server *server, const char *ca,
-                           const char *cert, const char *key) {
+void ev_tcp_server_set_tls(ev_tcp_server *server,
+                           const struct ev_tls_options *opt) {
     server->handle.ssl = 1;
     openssl_init();
-    server->handle.ssl_ctx = ssl_ctx_new();
-    load_certificates(server->handle.ssl_ctx, ca, cert, key);
+    server->handle.ssl_ctx = ssl_ctx_new(opt->protocols);
+    load_certificates(server->handle.ssl_ctx, opt->ca, opt->cert, opt->key);
 }
 
 /*

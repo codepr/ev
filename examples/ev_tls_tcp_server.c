@@ -38,8 +38,14 @@ int main(void) {
 
     ev_context *ctx = ev_get_ev_context();
     ev_tcp_server server;
+    struct ev_tls_options tls_opt = {
+        .ca = CA,
+        .cert = CERT,
+        .key = KEY
+    };
+    tls_opt.protocols = EV_TLSv1_2|EV_TLSv1_3;
     ev_tcp_server_init(&server, ctx, BACKLOG);
-    ev_tcp_server_set_tls(&server, CA, CERT, KEY);
+    ev_tcp_server_set_tls(&server, &tls_opt);
     int err = ev_tcp_server_listen(&server, HOST, PORT, on_connection);
     if (err < 0) {
         if (err == -1)
