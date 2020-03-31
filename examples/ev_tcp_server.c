@@ -1,23 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "../ev.h"
+#include "../ev_tcp.h"
 
 #define HOST    "127.0.0.1"
 #define PORT    5959
 #define BACKLOG 128
 
-static void on_data(ev_tcp_client *client) {
-    ev_tcp_read(client);
-    printf("Received %li bytes\n", client->bufsize);
-    if (strncmp(client->buf, "quit", 4) == 0)
+static void on_data(ev_tcp_handle *client) {
+    printf("Received %li bytes\n", client->buffer.size);
+    if (strncmp(client->buffer.buf, "quit", 4) == 0)
         ev_tcp_close_connection(client);
     else
         (void) ev_tcp_write(client);
 }
 
-static void on_connection(ev_tcp_server *server) {
+static void on_connection(ev_tcp_handle *server) {
     int err = 0;
-    ev_tcp_client *client = malloc(sizeof(*client));
+    ev_tcp_handle *client = malloc(sizeof(*client));
     if ((err = ev_tcp_server_accept(server, client, on_data)) < 0) {
         if (err < 0) {
             if (err == -1)
