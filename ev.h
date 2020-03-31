@@ -87,9 +87,7 @@
 #endif // __linux__
 
 #include <time.h>
-//#include <netdb.h>
 #include <errno.h>
-//#include <fcntl.h>
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>

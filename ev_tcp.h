@@ -30,6 +30,10 @@
 
 #include <netdb.h>
 #include <fcntl.h>
+#ifdef HAVE_OPENSSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#endif
 #include "ev.h"
 
 /*
@@ -116,6 +120,17 @@ struct ev_connection {
     send_callback on_send;
 };
 
+#ifdef HAVE_OPENSSL
+
+typedef struct ev_tls_connection ev_tls_connection;
+
+struct ev_tls_connection {
+    ev_connection c;
+    SSL *ssl;
+};
+
+#endif
+
 /*
  * General wrapper around a connection, it is comprised of a buffer, a pointer
  * to the ev_context that must be set on creation, two optionally sentinels
@@ -125,7 +140,11 @@ struct ev_tcp_handle {
     int err;
     size_t to_read;
     size_t to_write;
-    ev_connection c;
+#ifdef HAVE_OPENSSL
+    int ssl;
+    SSL_CTX *ssl_ctx;
+#endif
+    ev_connection *c;
     ev_buf buffer;
     ev_context *ctx;
 };
@@ -227,6 +246,14 @@ void ev_tcp_close_connection(ev_tcp_handle *);
  */
 const char *ev_tcp_err(int);
 
+#ifdef HAVE_OPENSSL
+
+ssize_t ev_tls_tcp_read(ev_tcp_handle *);
+
+ssize_t ev_tls_tcp_write(ev_tcp_handle *);
+
+#endif
+
 /* Set non-blocking socket */
 static inline int set_nonblocking(int fd) {
     int flags, result;
@@ -257,7 +284,7 @@ err:
 static void on_accept(ev_context *ctx, void *data) {
     (void) ctx;
     ev_tcp_server *server = data;
-    server->handle.c.on_conn(&server->handle);
+    server->handle.c->on_conn(&server->handle);
 }
 
 static void on_recv(ev_context *ctx, void *data) {
@@ -278,7 +305,7 @@ static void on_recv(ev_context *ctx, void *data) {
         handle->to_read -= handle->buffer.size;
         ev_tcp_enqueue_read(handle);
     } else {
-        handle->c.on_recv(handle);
+        handle->c->on_recv(handle);
     }
 }
 
@@ -294,15 +321,182 @@ static void on_send(ev_context *ctx, void *data) {
     if (handle->buffer.size > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
         ev_tcp_enqueue_write(handle);
     } else {
-        handle->c.on_send(handle);
+        handle->c->on_send(handle);
     }
 }
+
+#ifdef HAVE_OPENSSL
+
+static void on_tls_recv(ev_context *ctx, void *data) {
+    (void) ctx;
+    ev_tcp_handle *handle = data;
+    handle->err = ev_tls_tcp_read(handle);
+
+    if (handle->err == EV_TCP_SUCCESS)
+        ev_tcp_close_connection(handle);
+
+    /*
+     * If EAGAIN happened and there still more data to read, re-arm
+     * for a read on the next loop cycle, hopefully the kernel will be
+     * available to send remaining data
+     */
+    if (handle->to_read > 0 && handle->buffer.size < handle->to_read
+        && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        handle->to_read -= handle->buffer.size;
+        ev_tcp_enqueue_read(handle);
+    } else {
+        handle->c->on_recv(handle);
+    }
+}
+
+static void on_tls_send(ev_context *ctx, void *data) {
+    (void) ctx;
+    ev_tcp_handle *handle = data;
+    handle->err = ev_tls_tcp_write(handle);
+    /*
+     * If EAGAIN happened and there still more data to be written out, re-arm
+     * for a write on the next loop cycle, hopefully the kernel will be
+     * available to send remaining data
+     */
+    if (handle->buffer.size > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        ev_tcp_enqueue_write(handle);
+    } else {
+        handle->c->on_send(handle);
+    }
+}
+
+#endif // HAVE_OPENSSL
 
 static void on_stop(ev_context *ctx, void *data) {
     (void) ctx;
     (void) data;
     ctx->stop = 1;
 }
+
+static ev_connection *ev_connection_new(int fd) {
+    ev_connection *conn = malloc(sizeof(*conn));
+    conn->fd = fd;
+    return conn;
+}
+
+static int ev_accept(int sfd) {
+    int fd;
+    struct sockaddr_in addr;
+    socklen_t addrlen = sizeof(addr);
+
+    /* Let's accept on listening socket */
+    fd = accept(sfd, (struct sockaddr *) &addr, &addrlen);
+
+    if (fd <= 0)
+        goto exit;
+
+    (void) set_nonblocking(fd);
+
+exit:
+    return fd;
+}
+
+#ifdef HAVE_OPENSSL
+
+static ev_connection *ev_tls_connection_new(int fd, SSL *ssl) {
+    ev_tls_connection *conn = malloc(sizeof(*conn));
+    conn->c.fd = fd;
+    conn->ssl = ssl;
+    return (ev_connection *) conn;
+}
+
+static void openssl_init() {
+    SSL_library_init();
+    ERR_load_crypto_strings();
+    SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
+}
+
+static void openssl_cleanup() {
+    EVP_cleanup();
+}
+
+static SSL_CTX *ssl_ctx_new(void) {
+
+#if OPENSSL_VERSION_NUMBER >= 0x10100000
+    // TLS_server_method has been added with OpenSSL version > 1.1.0
+    // and should be used in place of SSLv* which is goind to be deprecated
+    SSL_CTX *ssl_ctx = SSL_CTX_new(TLS_server_method());
+#else
+    SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_method());
+#endif // OPENSSL_VERSION_NUMBER
+    if (!ssl_ctx) {
+        perror("Unable to create SSL context");
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_SSLv2|SSL_OP_NO_SSLv3);
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_SINGLE_DH_USE);
+
+    // TLSv1_2
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_TLSv1_2);
+
+#ifdef SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS);
+#endif
+#ifdef SSL_OP_NO_COMPRESSION
+    SSL_CTX_set_options(ssl_ctx, SSL_OP_NO_COMPRESSION);
+#endif
+#ifdef SSL_OP_NO_CLIENT_RENEGOTIATION
+    SSL_CTX_set_options(ssl->ctx, SSL_OP_NO_CLIENT_RENEGOTIATION);
+#endif
+    return ssl_ctx;
+}
+
+static int client_certificate_verify(int preverify_ok, X509_STORE_CTX *ctx) {
+
+    (void) ctx;  // Unused
+
+	/* Preverify should check expiry, revocation. */
+	return preverify_ok;
+}
+
+static void load_certificates(SSL_CTX *ctx, const char *ca,
+                              const char *cert, const char *key) {
+
+    if (SSL_CTX_load_verify_locations(ctx, ca, NULL) <= 0) {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    SSL_CTX_set_mode(ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
+	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, client_certificate_verify);
+    SSL_CTX_set_ecdh_auto(ctx, 1);
+
+	if (SSL_CTX_use_certificate_chain_file(ctx, cert) <= 0) {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    if (SSL_CTX_use_PrivateKey_file(ctx, key, SSL_FILETYPE_PEM) <= 0 ) {
+        ERR_print_errors_fp(stderr);
+        exit(EXIT_FAILURE);
+    }
+
+    /* verify private key */
+    if (!SSL_CTX_check_private_key(ctx) ) {
+        fprintf(stderr, "Private key does not match the public certificate\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+static SSL *ssl_accept(SSL_CTX *ctx, int fd) {
+    SSL *ssl = SSL_new(ctx);
+    SSL_set_fd(ssl, fd);
+    SSL_set_accept_state(ssl);
+    ERR_clear_error();
+    if (SSL_accept(ssl) <= 0)
+        ERR_print_errors_fp(stderr);
+    return ssl;
+}
+
+#endif // HAVE_OPENSSL
 
 /*
  * =================
@@ -325,9 +519,9 @@ int ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
     ev_register_event(server->handle.ctx, server->run[1],
                       EV_CLOSEFD|EV_READ, on_stop, NULL);
 #endif
-    server->handle.c.on_conn = NULL;
-    server->handle.c.on_recv = NULL;
-    server->handle.c.on_send = NULL;
+    server->handle.c->on_conn = NULL;
+    server->handle.c->on_recv = NULL;
+    server->handle.c->on_send = NULL;
     return EV_OK;
 }
 
@@ -375,13 +569,13 @@ int ev_tcp_server_listen(ev_tcp_server *server, const char *host,
     if (listen(listen_fd, server->backlog) != 0)
         goto err;
 
-    server->handle.c.fd = listen_fd;
+    server->handle.c->fd = listen_fd;
     snprintf(server->host, strlen(host), "%s", host);
     server->port = port;
-    server->handle.c.on_conn = on_connection;
+    server->handle.c->on_conn = on_connection;
 
     // Register to service callback
-    ev_register_event(server->handle.ctx, server->handle.c.fd,
+    ev_register_event(server->handle.ctx, server->handle.c->fd,
                       EV_READ, on_accept, server);
 
     return EV_TCP_SUCCESS;
@@ -397,8 +591,12 @@ void ev_tcp_server_run(ev_tcp_server *server) {
 }
 
 void ev_tcp_server_stop(ev_tcp_server *server) {
-    ev_del_fd(server->handle.ctx, server->handle.c.fd);
-    close(server->handle.c.fd);
+    ev_del_fd(server->handle.ctx, server->handle.c->fd);
+    close(server->handle.c->fd);
+#ifdef HAVE_OPENSSL
+    SSL_CTX_free(server->handle.ssl_ctx);
+    openssl_cleanup();
+#endif
 #if defined(EPOLL) || defined(__linux__)
     eventfd_write(server->run, 1);
 #else
@@ -416,38 +614,52 @@ int ev_tcp_server_accept(ev_tcp_handle *server,
                          ev_tcp_handle *client, recv_callback on_data) {
     if (!on_data)
         return EV_TCP_MISSING_CALLBACK;
-    client->c.on_recv = on_data;
+    client->c->on_recv = on_data;
     while (1) {
-        int fd;
-        struct sockaddr_in addr;
-        socklen_t addrlen = sizeof(addr);
-
-        /* Let's accept on listening socket */
-        if ((fd = accept(server->c.fd, (struct sockaddr *) &addr, &addrlen)) < 0)
+        int fd = ev_accept(server->c->fd);
+        if (fd < 0)
             break;
-
         if (fd == 0)
             continue;
 
-        /* Make the new accepted socket non-blocking */
-        (void) set_nonblocking(fd);
-
         // XXX placeholder
-        client->c.fd = fd;
-        client->ctx = server->ctx;
-        ev_buf_init(&client->buffer, EV_TCP_BUFSIZE);
+#ifdef HAVE_OPENSSL
+        if (server->ssl == 1) {
+            client->c = ev_tls_connection_new(fd, ssl_accept(server->ssl_ctx, fd));
+            client->ctx = server->ctx;
+            ev_buf_init(&client->buffer, EV_TCP_BUFSIZE);
+            int err = ev_register_event(server->ctx, fd,
+                                        EV_READ, on_tls_recv, client);
+            if (err < 0)
+                return EV_TCP_FAILURE;
+        } else {
+#endif
+            client->c = ev_connection_new(fd);
+            client->ctx = server->ctx;
+            ev_buf_init(&client->buffer, EV_TCP_BUFSIZE);
+            int err = ev_register_event(server->ctx, fd,
+                                        EV_READ, on_recv, client);
+            if (err < 0)
+                return EV_TCP_FAILURE;
+#ifdef HAVE_OPENSSL
+        }
+#endif
 
-        int err = ev_register_event(server->ctx, fd, EV_READ, on_recv, client);
-        if (err < 0)
-            return EV_TCP_FAILURE;
     }
     return EV_TCP_SUCCESS;
 }
 
 int ev_tcp_enqueue_write(ev_tcp_handle *client) {
-    if (!client->c.on_send)
+    if (!client->c->on_send)
         return EV_TCP_MISSING_CALLBACK;
-    int err = ev_fire_event(client->ctx, client->c.fd,
+    int err = 0;
+#ifdef HAVE_OPENSSL
+    if (client->ssl == 1)
+        err = ev_fire_event(client->ctx, client->c->fd,
+                            EV_WRITE, on_tls_send, client);
+    else
+#endif // HAVE_OPENSSL
+        err = ev_fire_event(client->ctx, client->c->fd,
                             EV_WRITE, on_send, client);
     if (err < 0)
         return EV_TCP_FAILURE;
@@ -455,9 +667,16 @@ int ev_tcp_enqueue_write(ev_tcp_handle *client) {
 }
 
 int ev_tcp_enqueue_read(ev_tcp_handle *client) {
-    if (!client->c.on_recv)
+    if (!client->c->on_recv)
         return EV_TCP_MISSING_CALLBACK;
-    int err = ev_fire_event(client->ctx, client->c.fd,
+    int err = 0;
+#ifdef HAVE_OPENSSL
+    if (client->ssl == 1)
+        err = ev_fire_event(client->ctx, client->c->fd,
+                            EV_READ, on_tls_recv, client);
+    else
+#endif // HAVE_OPENSSL
+        err = ev_fire_event(client->ctx, client->c->fd,
                             EV_READ, on_recv, client);
     if (err < 0)
         return EV_TCP_FAILURE;
@@ -469,7 +688,7 @@ ssize_t ev_tcp_read(ev_tcp_handle *client) {
     ssize_t n = 0;
     /* Read incoming stream of bytes */
     do {
-        n = read(client->c.fd, client->buffer.buf + client->buffer.size,
+        n = read(client->c->fd, client->buffer.buf + client->buffer.size,
                  size - client->buffer.size);
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -498,7 +717,7 @@ ssize_t ev_tcp_write(ev_tcp_handle *client) {
 
     /* Let's reply to the client */
     while (client->buffer.size > 0) {
-        n = write(client->c.fd, client->buffer.buf + n, client->buffer.size);
+        n = write(client->c->fd, client->buffer.buf + n, client->buffer.size);
         if (n == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
                 break;
@@ -513,8 +732,9 @@ ssize_t ev_tcp_write(ev_tcp_handle *client) {
 }
 
 void ev_tcp_close_connection(ev_tcp_handle *client) {
-    ev_del_fd(client->ctx, client->c.fd);
-    close(client->c.fd);
+    ev_del_fd(client->ctx, client->c->fd);
+    close(client->c->fd);
+    free(client->c);
     free(client->buffer.buf);
     free(client);
 }
@@ -531,5 +751,97 @@ const char *ev_tcp_err(int rc) {
             return "Unknown error";
     }
 }
+
+#ifdef HAVE_OPENSSL
+
+void ev_tcp_server_set_tls(ev_tcp_server *server, const char *ca,
+                           const char *cert, const char *key) {
+    server->handle.ssl = 1;
+    openssl_init();
+    server->handle.ssl_ctx = ssl_ctx_new();
+    load_certificates(server->handle.ssl_ctx, ca, cert, key);
+}
+
+/*
+ * Sends a stream of bytes as indicated by the size member of the stream
+ * structure passed in as argument, just like the `stream_send` function but
+ * using an inited SSL pointer to encrypt the data before sending it out
+ */
+ssize_t ev_tls_tcp_write(ev_tcp_handle *client) {
+    size_t total = client->buffer.size;
+    ssize_t n = 0;
+    SSL *ssl = ((ev_tls_connection *) client->c)->ssl;
+
+    ERR_clear_error();
+
+    while (client->buffer.size > 0) {
+        if ((n = SSL_write(ssl, client->buffer.buf + n,
+                           client->buffer.size)) <= 0) {
+            int err = SSL_get_error(ssl, n);
+            if (err == SSL_ERROR_WANT_WRITE || SSL_ERROR_NONE)
+                continue;
+            if (err == SSL_ERROR_ZERO_RETURN
+                || (err == SSL_ERROR_SYSCALL && !errno))
+                return EV_TCP_SUCCESS;  // Connection closed
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
+            else
+                goto err;
+        }
+        client->buffer.size -= n;
+    }
+
+    return total - client->buffer.size;
+
+err:
+
+    fprintf(stderr, "SSL_write(2) - error sending data: %s\n", strerror(errno));
+    return EV_TCP_FAILURE;
+}
+
+ssize_t ev_tls_tcp_read(ev_tcp_handle *client) {
+
+    SSL *ssl = ((ev_tls_connection *) client->c)->ssl;
+    ssize_t n = 0;
+
+    ERR_clear_error();
+
+    do {
+        n = SSL_read(ssl, client->buffer.buf + client->buffer.size,
+                     client->buffer.capacity - client->buffer.size);
+        if (n <= 0) {
+            int err = SSL_get_error(ssl, n);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_NONE)
+                continue;
+            if (err == SSL_ERROR_ZERO_RETURN
+                || (err == SSL_ERROR_SYSCALL && !errno))
+                return EV_TCP_SUCCESS;  // Connection closed
+            if (errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
+            else
+                goto err;
+        }
+
+        if (n == 0)
+            return EV_TCP_SUCCESS;
+
+        client->buffer.size += n;
+
+        if (client->buffer.size == client->buffer.capacity) {
+            client->buffer.capacity *= 2;
+            client->buffer.buf =
+                realloc(client->buffer.buf, client->buffer.capacity);
+        }
+    } while (n > 0);
+
+    return client->buffer.size;
+
+err:
+
+    fprintf(stderr, "SSL_read(2) - error reading data: %s\n", strerror(errno));
+    return EV_TCP_FAILURE;
+}
+
+#endif
 
 #endif

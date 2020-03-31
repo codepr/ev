@@ -2,9 +2,14 @@ EV
 ==
 
 Light event-loop library loosely inspired by the excellent libuv, in a single
-**small** (< 1000 sloc) header, based on the common IO multiplexing
+**small** (< 700 sloc) header, based on the common IO multiplexing
 implementations available, epoll on linux, kqueue on BSD-like and OSX,
 poll/select as a fallback, dependencies-free.
+A common usage of the library is to craft event-driven TCP servers, `ev_tcp.h`
+exposes a set of APIs to fulfill this purpose in a simple manner.
+
+TLS is supported as well through OpenSSL, and source have to be compiled adding
+a `-DHAVE_OPENSSL=1` to enable it.
 
 ## Running examples
 
@@ -35,6 +40,8 @@ static void on_data(ev_tcp_handle *client) {
     if (strncmp(client->buffer.buf, "quit", 4) == 0)
         ev_tcp_close_connection(client);
     else
+        // If using TLS encryption
+        // ev_tls_tcp_write(client);
         ev_tcp_write(client);
 }
 
@@ -48,6 +55,8 @@ int main(void) {
     ev_context *ctx = ev_get_ev_context();
     ev_tcp_server server;
     ev_tcp_server_init(&server, ctx, 128);
+    // To set TLS using OpenSSL
+    // ev_tcp_server_set_tls(&server, CA, CERT, KEY);
     ev_tcp_server_listen(&server, "127.0.0.1", 5959, on_connection);
     // Blocking call
     ev_tcp_server_run(&server);
