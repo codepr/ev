@@ -94,7 +94,7 @@ typedef void (*send_callback)(ev_tcp_handle *);
 struct ev_buf {
     size_t size;
     size_t capacity;
-    unsigned char *buf;
+    char *buf;
 };
 
 /*
