@@ -50,6 +50,10 @@
  * default value is 2048.
  *
  * #define EV_TCP_BUFSIZE 2048
+ *
+ * TLS is supported through OpenSSL library, to enable it the sources must be
+ * compiled using an additional custom flag -DHAVE_OPENSSL=1 and -lssl -lcrypto
+ * of course.
  */
 
 #define EV_TCP_SUCCESS           0
@@ -124,6 +128,10 @@ struct ev_connection {
 
 typedef struct ev_tls_connection ev_tls_connection;
 
+/*
+ * Just a plain connection with an SSL pointer to add encryption to the accept,
+ * read and write operations
+ */
 struct ev_tls_connection {
     ev_connection c;
     SSL *ssl;
@@ -135,6 +143,8 @@ struct ev_tls_connection {
  * General wrapper around a connection, it is comprised of a buffer, a pointer
  * to the ev_context that must be set on creation, two optionally sentinels
  * for the read/write queue and an err reporting field.
+ * Two fieds are added if TLS is enabled, ssl, a flag indicating it's
+ * abilitation and a pointer to an SSL_CTX to be used as the server context.
  */
 struct ev_tcp_handle {
     int err;
@@ -248,8 +258,16 @@ const char *ev_tcp_err(int);
 
 #ifdef HAVE_OPENSSL
 
+/*
+ * Read incoming streams of bytes applying decryption algorithms and storing
+ * the plain data on the buffer
+ */
 ssize_t ev_tls_tcp_read(ev_tcp_handle *);
 
+/*
+ * Write streams of bytes applying decryption algorithms to the the plain data
+ * on the buffer before sending it out through TCP
+ */
 ssize_t ev_tls_tcp_write(ev_tcp_handle *);
 
 #endif
