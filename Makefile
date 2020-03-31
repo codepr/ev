@@ -16,9 +16,6 @@ ev-tcp-server-stats: examples/ev_tcp_server_stats.c ev.h
 ev-tls-tcp-server: examples/ev_tls_tcp_server.c ev.h
 	$(CC) $(CFLAGS) -lssl -lcrypto examples/ev_tls_tcp_server.c -o ev_tls_tcp_server
 
-ev-tcp-server-2: examples/ev_tcp_server_2.c ev_tcp.h
-	$(CC) $(CFLAGS) examples/ev_tcp_server_2.c -o ev_tcp_server_2
-
 all: echo-server ping-pong ev-tcp-server ev-tcp-server-stats ev-tls-tcp-server
 
 clean:
