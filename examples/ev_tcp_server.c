@@ -6,6 +6,12 @@
 #define PORT    5959
 #define BACKLOG 128
 
+static void on_close(ev_tcp_handle *client, int err) {
+    (void) client;
+    printf("Closing: %s\n", ev_tcp_err(err));
+    free(client);
+}
+
 static void on_write(ev_tcp_handle *client) {
     (void) client;
     printf("Written response\n");
@@ -14,7 +20,7 @@ static void on_write(ev_tcp_handle *client) {
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
     if (strncmp(client->buffer.buf, "quit", 4) == 0)
-        ev_tcp_close_connection(client);
+        (void) ev_tcp_enqueue_close(client);
     else
         (void) ev_tcp_enqueue_write(client);
 }
@@ -30,6 +36,7 @@ static void on_connection(ev_tcp_handle *server) {
                 fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
         }
     }
+    ev_tcp_handle_set_on_close(client, on_close);
 }
 
 int main(void) {
@@ -43,6 +50,7 @@ int main(void) {
             fprintf(stderr, "Something went wrong %s\n", strerror(errno));
         else
             fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
+        exit(EXIT_FAILURE);
     }
 
     printf("Listening on %s:%i\n", HOST, PORT);

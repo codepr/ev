@@ -96,6 +96,12 @@ typedef void (*recv_callback)(ev_tcp_handle *);
 typedef void (*send_callback)(ev_tcp_handle *);
 
 /*
+ * On close callback, once a connection is closed, call this routine, mainly to
+ * clean out resources or something
+ */
+typedef void (*close_callback)(ev_tcp_handle *, int);
+
+/*
  * Trivial abstraction on a byte buffer, just the capacity and the current
  * size are stored beside the actual buffer
  */
@@ -122,6 +128,7 @@ struct ev_connection {
     conn_callback on_conn;
     recv_callback on_recv;
     send_callback on_send;
+    close_callback on_close;
 };
 
 #ifdef HAVE_OPENSSL
@@ -252,6 +259,12 @@ int ev_tcp_enqueue_read(ev_tcp_handle *);
 int ev_tcp_enqueue_write(ev_tcp_handle *);
 
 /*
+ * Fires an EV_WRITE event using a service private function to schedule the
+ * closing of a connection
+ */
+int ev_tcp_enqueue_close(ev_tcp_handle *);
+
+/*
  * Read all the incoming bytes on the connected client FD and store the to the
  * client buffer along with the total size read.
  */
@@ -274,6 +287,11 @@ void ev_tcp_close_connection(ev_tcp_handle *);
  * errors returned by the helper APIs
  */
 const char *ev_tcp_err(int);
+
+/*
+ * Set an on_close function to be called after the shutdown of a connection
+ */
+void ev_tcp_handle_set_on_close(ev_tcp_handle *, close_callback);
 
 #ifdef HAVE_OPENSSL
 
@@ -324,19 +342,19 @@ err:
  * ===================================================================
  */
 
-static void on_accept(ev_context *ctx, void *data) {
+static void ev_on_accept(ev_context *ctx, void *data) {
     (void) ctx;
     ev_tcp_server *server = data;
     server->handle.c->on_conn(&server->handle);
 }
 
-static void on_recv(ev_context *ctx, void *data) {
+static void ev_on_recv(ev_context *ctx, void *data) {
     (void) ctx;
     ev_tcp_handle *handle = data;
     handle->err = ev_tcp_read(handle);
 
     if (handle->err == EV_TCP_SUCCESS)
-        ev_tcp_close_connection(handle);
+        goto close;
 
     /*
      * If EAGAIN happened and there still more data to read, re-arm
@@ -350,9 +368,14 @@ static void on_recv(ev_context *ctx, void *data) {
     } else {
         handle->c->on_recv(handle);
     }
+
+    return;
+
+close:
+    ev_tcp_enqueue_close(handle);
 }
 
-static void on_send(ev_context *ctx, void *data) {
+static void ev_on_send(ev_context *ctx, void *data) {
     (void) ctx;
     ev_tcp_handle *handle = data;
     handle->err = ev_tcp_write(handle);
@@ -367,6 +390,17 @@ static void on_send(ev_context *ctx, void *data) {
         handle->c->on_send(handle);
         ev_tcp_enqueue_read(handle);
     }
+}
+
+static void ev_on_close(ev_context *ctx, void *data) {
+    (void) ctx;
+    ev_tcp_handle *handle = data;
+    ev_del_fd(handle->ctx, handle->c->fd);
+    close(handle->c->fd);
+    close_callback cb = handle->c->on_close;
+    free(handle->c);
+    free(handle->buffer.buf);
+    cb(handle, handle->err);
 }
 
 #ifdef HAVE_OPENSSL
@@ -653,7 +687,7 @@ int ev_tcp_server_listen(ev_tcp_server *server, const char *host,
 
     // Register to service callback
     ev_register_event(server->handle.ctx, server->handle.c->fd,
-                      EV_READ, on_accept, server);
+                      EV_READ, ev_on_accept, server);
 
     return EV_TCP_SUCCESS;
 err:
@@ -672,6 +706,7 @@ void ev_tcp_server_stop(ev_tcp_server *server) {
         ev_del_fd(server->handle.ctx, server->handle.c->fd);
         close(server->handle.c->fd);
     }
+    free(server->handle.c);
 #ifdef HAVE_OPENSSL
     SSL_CTX_free(server->handle.ssl_ctx);
     openssl_cleanup();
@@ -708,13 +743,12 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
             ev_tcp_handle_init(client, fd);
             client->ctx = server->ctx;
             int err = ev_register_event(server->ctx, fd,
-                                        EV_READ, on_recv, client);
+                                        EV_READ, ev_on_recv, client);
             if (err < 0)
                 return EV_TCP_FAILURE;
 #ifdef HAVE_OPENSSL
         }
 #endif
-        ev_buf_init(&client->buffer, EV_TCP_BUFSIZE);
         client->c->on_recv = on_data;
         client->c->on_send = on_send;
     }
@@ -732,7 +766,7 @@ int ev_tcp_enqueue_write(ev_tcp_handle *client) {
     else
 #endif // HAVE_OPENSSL
         err = ev_fire_event(client->ctx, client->c->fd,
-                            EV_WRITE, on_send, client);
+                            EV_WRITE, ev_on_send, client);
     if (err < 0)
         return EV_TCP_FAILURE;
     return EV_TCP_SUCCESS;
@@ -749,10 +783,14 @@ int ev_tcp_enqueue_read(ev_tcp_handle *client) {
     else
 #endif // HAVE_OPENSSL
         err = ev_fire_event(client->ctx, client->c->fd,
-                            EV_READ, on_recv, client);
+                            EV_READ, ev_on_recv, client);
     if (err < 0)
         return EV_TCP_FAILURE;
     return EV_TCP_SUCCESS;
+}
+
+int ev_tcp_enqueue_close(ev_tcp_handle *client) {
+    return ev_fire_event(client->ctx, client->c->fd, EV_WRITE, ev_on_close, client);
 }
 
 ssize_t ev_tcp_read(ev_tcp_handle *client) {
@@ -808,7 +846,10 @@ void ev_tcp_close_connection(ev_tcp_handle *client) {
     close(client->c->fd);
     free(client->c);
     free(client->buffer.buf);
-    free(client);
+}
+
+void ev_tcp_handle_set_on_close(ev_tcp_handle *h, close_callback on_close) {
+    h->c->on_close = on_close;
 }
 
 const char *ev_tcp_err(int rc) {
