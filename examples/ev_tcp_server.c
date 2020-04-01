@@ -6,18 +6,23 @@
 #define PORT    5959
 #define BACKLOG 128
 
+static void on_write(ev_tcp_handle *client) {
+    (void) client;
+    printf("Written response\n");
+}
+
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
     if (strncmp(client->buffer.buf, "quit", 4) == 0)
         ev_tcp_close_connection(client);
     else
-        (void) ev_tcp_write(client);
+        (void) ev_tcp_enqueue_write(client);
 }
 
 static void on_connection(ev_tcp_handle *server) {
     int err = 0;
     ev_tcp_handle *client = malloc(sizeof(*client));
-    if ((err = ev_tcp_server_accept(server, client, on_data, NULL)) < 0) {
+    if ((err = ev_tcp_server_accept(server, client, on_data, on_write)) < 0) {
         if (err < 0) {
             if (err == -1)
                 fprintf(stderr, "Something went wrong %s\n", strerror(errno));
