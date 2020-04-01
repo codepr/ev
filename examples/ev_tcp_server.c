@@ -38,8 +38,10 @@ static void on_connection(ev_tcp_handle *server) {
             else
                 fprintf(stderr, "Error occured:%s\n", ev_tcp_err(err));
         }
+        free(client);
+    } else {
+        ev_tcp_handle_set_on_close(client, on_close);
     }
-    ev_tcp_handle_set_on_close(client, on_close);
 }
 
 int main(void) {

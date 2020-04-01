@@ -35,19 +35,43 @@ Lightweight event-driven hello world TCP server
 #include <stdlib.h>
 #include "../ev_tcp.h"
 
+#define HOST    "127.0.0.1"
+#define PORT    5959
+#define BACKLOG 128
+
+static void on_close(ev_tcp_handle *client, int err) {
+    (void) client;
+    if (err == EV_TCP_SUCCESS)
+        printf("Connection closed\n");
+    else
+        printf("Connection closed: %s\n", ev_tcp_err(err));
+    free(client);
+}
+
+static void on_write(ev_tcp_handle *client) {
+    (void) client;
+    printf("Written response\n");
+}
+
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
     if (strncmp(client->buffer.buf, "quit", 4) == 0)
-        ev_tcp_close_connection(client);
+        ev_tcp_close_handle(client);
     else
-        // If using TLS encryption
-        // ev_tls_tcp_write(client);
-        ev_tcp_write(client);
+        // Enqueue a write of the buffer content for the next loop cycle
+        ev_tcp_enqueue_write(client);
+        // If want to respond on the same loop cycle
+        // ev_tcp_write(client);
 }
 
 static void on_connection(ev_tcp_handle *server) {
     ev_tcp_handle *client = malloc(sizeof(*client));
-    iev_tcp_server_accept(server, client, on_data);
+    int err = ev_tcp_server_accept(server, client, on_data, on_write);
+    if (err < 0)
+        free(client);
+    else
+        ev_tcp_handle_set_on_close(client, on_close);
+
 }
 
 int main(void) {
@@ -63,7 +87,9 @@ int main(void) {
     // };
     // tls_opt.protocols = EV_TLSv1_2|EV_TLSv1_3;
     // ev_tcp_server_set_tls(&server, &tls_opt);
-    ev_tcp_server_listen(&server, "127.0.0.1", 5959, on_connection);
+    int err = ev_tcp_server_listen(&server, HOST, PORT, on_connection);
+    if (err < 0)
+        exit(EXIT_FAILURE);
     // Blocking call
     ev_tcp_server_run(&server);
     // This could be registered to a SIGINT|SIGTERM signal notification

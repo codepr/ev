@@ -20,7 +20,7 @@ static void on_close(ev_tcp_handle *client, int err) {
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
     if (strncmp(client->buffer.buf, "quit", 4) == 0) {
-        ev_tcp_close_connection(client);
+        ev_tcp_close_handle(client);
     } else {
         (void) ev_tcp_write(client);
     }

@@ -24,7 +24,7 @@ static void on_close(ev_tcp_handle *client, int err) {
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
     if (strncmp(client->buffer.buf, "quit", 4) == 0) {
-        ev_tcp_close_connection(client);
+        ev_tcp_close_handle(client);
         --connections;
     } else {
         (void) ev_tcp_write(client);
@@ -37,9 +37,9 @@ static void on_connection(ev_tcp_handle *server) {
     if ((err = ev_tcp_server_accept(server, client, on_data, NULL)) < 0) {
         if (err < 0) {
             if (err == -1)
-                fprintf(stderr, "Something went wrong %s\n", strerror(errno));
+                fprintf(stderr, "Error occured: %s\n", strerror(errno));
             else
-                fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
+                fprintf(stderr, "Error occured: %s\n", ev_tcp_err(err));
         }
     } else {
         ev_tcp_handle_set_on_close(client, on_close);
@@ -57,9 +57,10 @@ int main(void) {
     int err = ev_tcp_server_listen(&server, HOST, PORT, on_connection);
     if (err < 0) {
         if (err == -1)
-            fprintf(stderr, "Something went wrong %s\n", strerror(errno));
+            fprintf(stderr, "Error occured: %s\n", strerror(errno));
         else
-            fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
+            fprintf(stderr, "Error occured: %s\n", ev_tcp_err(err));
+        exit(EXIT_FAILURE);
     }
 
     printf("Listening on %s:%i\n", HOST, PORT);

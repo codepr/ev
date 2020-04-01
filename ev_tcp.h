@@ -284,7 +284,7 @@ ssize_t ev_tcp_write(ev_tcp_handle *);
  * Close a connection by removing the client FD from the underlying ev_context
  * and closing it, free all resources allocated
  */
-void ev_tcp_close_connection(ev_tcp_handle *);
+void ev_tcp_close_handle(ev_tcp_handle *);
 
 /*
  * Just a simple helper function to retrieve a text explanation of the common
@@ -877,7 +877,7 @@ ssize_t ev_tcp_write(ev_tcp_handle *client) {
 #endif
 }
 
-void ev_tcp_close_connection(ev_tcp_handle *handle) {
+void ev_tcp_close_handle(ev_tcp_handle *handle) {
     ev_connection *c = handle->c;
     char *buf = handle->buffer.buf;
 #ifdef HAVE_OPENSSL

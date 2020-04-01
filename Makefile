@@ -1,5 +1,5 @@
 .POSIX:
-CFLAGS=-std=c99 -Wall -Wextra -Werror -pedantic -D_DEFAULT_SOURCE=200809L -ggdb -fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -pg
+CFLAGS=-std=c99 -Wall -Wextra -Werror -pedantic -D_DEFAULT_SOURCE=200809L
 
 echo-server: examples/echo_server.c ev.h
 	$(CC) $(CFLAGS) examples/echo_server.c -o echo_server
