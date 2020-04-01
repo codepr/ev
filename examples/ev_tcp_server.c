@@ -32,12 +32,10 @@ static void on_connection(ev_tcp_handle *server) {
     int err = 0;
     ev_tcp_handle *client = malloc(sizeof(*client));
     if ((err = ev_tcp_server_accept(server, client, on_data, on_write)) < 0) {
-        if (err < 0) {
-            if (err == -1)
-                fprintf(stderr, "Error occured: %s\n", strerror(errno));
-            else
-                fprintf(stderr, "Error occured:%s\n", ev_tcp_err(err));
-        }
+        if (err == -1)
+            fprintf(stderr, "Error occured: %s\n", strerror(errno));
+        else
+            fprintf(stderr, "Error occured:%s\n", ev_tcp_err(err));
         free(client);
     } else {
         ev_tcp_handle_set_on_close(client, on_close);
