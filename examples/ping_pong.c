@@ -1,4 +1,5 @@
 #include <stdio.h>
+#define EV_SOURCE      // add before ev_tcp
 #include "../ev.h"
 
 #define PING_SECONDS 1

@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#define EV_SOURCE      // add before ev_tcp
+#define EV_TCP_SOURCE  // add before ev_tcp
 #include "../ev_tcp.h"
 
 #define HOST    "127.0.0.1"

@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#define EV_SOURCE // add before ev.h
 #include "../ev.h"
 
 /*
