@@ -307,6 +307,10 @@ void ev_tcp_server_set_tls(ev_tcp_server *, const struct ev_tls_options *);
 
 #endif
 
+#ifdef EV_TCP_SOURCE
+#ifndef EV_TCP_SOURCE_ONCE
+#define EV_TCP_SOURCE_ONCE
+
 /* Set non-blocking socket */
 static inline int set_nonblocking(int fd) {
     int flags, result;
@@ -910,4 +914,7 @@ void ev_tcp_server_set_tls(ev_tcp_server *server,
 
 #endif
 
-#endif
+#endif // EV_TCP_SOURCE_ONCE
+#endif // EV_TCP_SOURCE
+
+#endif // EV_TCP_H

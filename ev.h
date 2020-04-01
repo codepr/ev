@@ -255,6 +255,10 @@ int ev_register_cron(ev_context *,
 int ev_fire_event(ev_context *, int, int,
                   void (*callback)(ev_context *, void *), void *);
 
+#ifdef EV_SOURCE
+#ifndef EV_SOURCE_ONCE
+#define EV_SOURCE_ONCE
+
 #if defined(EPOLL)
 
 /*
@@ -1098,4 +1102,7 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
     return EV_OK;
 }
 
-#endif
+#endif // EV_SOURCE_ONCE
+#endif // EV_SOURCE
+
+#endif // EV_H
