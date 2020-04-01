@@ -234,7 +234,8 @@ void ev_tcp_server_stop(ev_tcp_server *);
  * ownership of the client, tough generally it's advisable to allocate it on
  * the heap to being able to juggle it around other callbacks
  */
-int ev_tcp_server_accept(ev_tcp_handle *, ev_tcp_handle *, recv_callback);
+int ev_tcp_server_accept(ev_tcp_handle *, ev_tcp_handle *,
+                         recv_callback, send_callback);
 
 /*
  * Fires an EV_READ event using a service private function to just read the
@@ -663,11 +664,12 @@ void ev_buf_init(ev_buf *buf, size_t capacity) {
     buf->buf = calloc(buf->capacity, sizeof(unsigned char));
 }
 
-int ev_tcp_server_accept(ev_tcp_handle *server,
-                         ev_tcp_handle *client, recv_callback on_data) {
+int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
+                         recv_callback on_data, send_callback on_send) {
     if (!on_data)
         return EV_TCP_MISSING_CALLBACK;
     client->c->on_recv = on_data;
+    client->c->on_send = on_send;
     while (1) {
         int fd = ev_accept(server->c->fd);
         if (fd < 0)
@@ -678,7 +680,8 @@ int ev_tcp_server_accept(ev_tcp_handle *server,
         // XXX placeholder
 #ifdef HAVE_OPENSSL
         if (server->ssl == 1) {
-            client->c = ev_tls_connection_new(fd, ssl_accept(server->ssl_ctx, fd));
+            client->c =
+                ev_tls_connection_new(fd, ssl_accept(server->ssl_ctx, fd));
             client->ctx = server->ctx;
             ev_buf_init(&client->buffer, EV_TCP_BUFSIZE);
             int err = ev_register_event(server->ctx, fd,

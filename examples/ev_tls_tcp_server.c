@@ -8,9 +8,9 @@
 #define HOST    "127.0.0.1"
 #define PORT    5959
 #define BACKLOG 128
-#define CA   "./certs/ca.crt"      // set me
-#define CERT "./certs/cert.crt"    // set me
-#define KEY  "./certs/keyfile.key" // set me
+#define CA      "./certs/ca.crt"      // set me
+#define CERT    "./certs/cert.crt"    // set me
+#define KEY     "./certs/keyfile.key" // set me
 
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
@@ -24,7 +24,7 @@ static void on_data(ev_tcp_handle *client) {
 static void on_connection(ev_tcp_handle *server) {
     int err = 0;
     ev_tcp_handle *client = malloc(sizeof(*client));
-    if ((err = ev_tcp_server_accept(server, client, on_data)) < 0) {
+    if ((err = ev_tcp_server_accept(server, client, on_data, NULL)) < 0) {
         if (err < 0) {
             if (err == -1)
                 fprintf(stderr, "Something went wrong %s\n", strerror(errno));
