@@ -8,7 +8,10 @@
 
 static void on_close(ev_tcp_handle *client, int err) {
     (void) client;
-    printf("Closing: %s\n", ev_tcp_err(err));
+    if (err == EV_TCP_SUCCESS)
+        printf("Connection closed\n");
+    else
+        printf("Connection closed: %s\n", ev_tcp_err(err));
     free(client);
 }
 
@@ -31,9 +34,9 @@ static void on_connection(ev_tcp_handle *server) {
     if ((err = ev_tcp_server_accept(server, client, on_data, on_write)) < 0) {
         if (err < 0) {
             if (err == -1)
-                fprintf(stderr, "Something went wrong %s\n", strerror(errno));
+                fprintf(stderr, "Error occured: %s\n", strerror(errno));
             else
-                fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
+                fprintf(stderr, "Error occured:%s\n", ev_tcp_err(err));
         }
     }
     ev_tcp_handle_set_on_close(client, on_close);
@@ -47,9 +50,9 @@ int main(void) {
     int err = ev_tcp_server_listen(&server, HOST, PORT, on_connection);
     if (err < 0) {
         if (err == -1)
-            fprintf(stderr, "Something went wrong %s\n", strerror(errno));
+            fprintf(stderr, "Error occured: %s\n", strerror(errno));
         else
-            fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
+            fprintf(stderr, "Error occured: %s\n", ev_tcp_err(err));
         exit(EXIT_FAILURE);
     }
 

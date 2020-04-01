@@ -16,6 +16,11 @@ static void print_stats(ev_context *ctx, void *data) {
     printf("Connected %u total %u\n", connections, total_connections);
 }
 
+static void on_close(ev_tcp_handle *client, int err) {
+    (void) err;
+    free(client);
+}
+
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
     if (strncmp(client->buffer.buf, "quit", 4) == 0) {
@@ -37,6 +42,7 @@ static void on_connection(ev_tcp_handle *server) {
                 fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
         }
     } else {
+        ev_tcp_handle_set_on_close(client, on_close);
         ++connections;
         ++total_connections;
     }

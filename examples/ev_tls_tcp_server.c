@@ -12,12 +12,17 @@
 #define CERT    "./certs/cert.crt"    // set me
 #define KEY     "./certs/keyfile.key" // set me
 
+static void on_close(ev_tcp_handle *client, int err) {
+    (void) err;
+    free(client);
+}
+
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
     if (strncmp(client->buffer.buf, "quit", 4) == 0) {
         ev_tcp_close_connection(client);
     } else {
-        (void) ev_tls_tcp_write(client);
+        (void) ev_tcp_write(client);
     }
 }
 
@@ -31,6 +36,9 @@ static void on_connection(ev_tcp_handle *server) {
             else
                 fprintf(stderr, "Something went wrong %s\n", ev_tcp_err(err));
         }
+        free(client);
+    } else {
+        ev_tcp_handle_set_on_close(client, on_close);
     }
 }
 
@@ -43,7 +51,7 @@ int main(void) {
         .cert = CERT,
         .key = KEY
     };
-    tls_opt.protocols = EV_TLSv1_2|EV_TLSv1_3;
+    tls_opt.protocols = EV_TLSvAll;
     ev_tcp_server_init(&server, ctx, BACKLOG);
     ev_tcp_server_set_tls(&server, &tls_opt);
     int err = ev_tcp_server_listen(&server, HOST, PORT, on_connection);
