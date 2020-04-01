@@ -386,28 +386,7 @@ static void ev_on_send(ev_context *ctx, void *data) {
 
 static void ev_on_close(ev_context *ctx, void *data) {
     (void) ctx;
-    ev_tcp_handle *handle = data;
-    ev_connection *c = handle->c;
-    ev_context *h_ctx = handle->ctx;
-    int fd = handle->c->fd;
-    char *buf = handle->buffer.buf;
-#ifdef HAVE_OPENSSL
-    int ssl_enabled = handle->ssl;
-    SSL *ssl;
-    if (ssl_enabled == 1)
-        ssl = ((ev_tls_connection *) handle->c)->ssl;
-#endif
-    handle->err = handle->err > 0 ? EV_TCP_SUCCESS : handle->err;
-    if (handle->c->on_close)
-        handle->c->on_close(handle, handle->err);
-#ifdef HAVE_OPENSSL
-    if (ssl_enabled == 1)
-        SSL_free(ssl);
-#endif
-    ev_del_fd(h_ctx, fd);
-    close(fd);
-    free(c);
-    free(buf);
+    ev_tcp_close_handle(data);
 }
 
 static void ev_server_on_stop(ev_context *ctx, void *data) {
@@ -879,13 +858,24 @@ ssize_t ev_tcp_write(ev_tcp_handle *client) {
 
 void ev_tcp_close_handle(ev_tcp_handle *handle) {
     ev_connection *c = handle->c;
+    ev_context *h_ctx = handle->ctx;
+    int fd = handle->c->fd;
     char *buf = handle->buffer.buf;
 #ifdef HAVE_OPENSSL
-    if (handle->ssl == 1)
-        SSL_free(((ev_tls_connection *) handle->c)->ssl);
+    int ssl_enabled = handle->ssl;
+    SSL *ssl;
+    if (ssl_enabled == 1)
+        ssl = ((ev_tls_connection *) handle->c)->ssl;
 #endif
-    ev_del_fd(handle->ctx, handle->c->fd);
-    close(handle->c->fd);
+    handle->err = handle->err > 0 ? EV_TCP_SUCCESS : handle->err;
+    if (handle->c->on_close)
+        handle->c->on_close(handle, handle->err);
+#ifdef HAVE_OPENSSL
+    if (ssl_enabled == 1)
+        SSL_free(ssl);
+#endif
+    ev_del_fd(h_ctx, fd);
+    close(fd);
     free(c);
     free(buf);
 }
