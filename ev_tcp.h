@@ -614,6 +614,12 @@ int ev_tcp_server_listen(ev_tcp_server *server, const char *host,
     for (rp = result; rp != NULL; rp = rp->ai_next) {
         listen_fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
         if (listen_fd < 0) continue;
+
+        /* set SO_REUSEADDR so the socket will be reusable after process kill */
+        if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR,
+                       &(int) { 1 }, sizeof(int)) < 0)
+            goto err;
+
         /* Bind it to the addr:port opened on the network interface */
         if (bind(listen_fd, rp->ai_addr, rp->ai_addrlen) == 0)
             break; // Succesful bind
