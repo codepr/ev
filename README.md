@@ -11,6 +11,35 @@ exposes a set of APIs to fulfill this purpose in a simple manner.
 TLS is supported as well through OpenSSL, and source have to be compiled adding
 a `-DHAVE_OPENSSL=1` to enable it.
 
+In conclusion the library is composed of 2 distinct modules
+
+- `ev.h` a generic eventloop for I/O bound concurrency on a single-thread:
+    - Based on the best multiplexing IO implementation available on the host,
+      supporting epoll/poll/select on linux and kqueue on BSD
+    - All IO operations are done in a non-blocking way
+    - Support for time based repeated tasks
+- `ev_tcp.h` exposes a set of APIs to simply create an event-driven TCP server
+  using `ev.h` as the main engine:
+    - TCP/UNIX socket connections
+    - Basic TLS support through OpenSSL
+    - Callback oriented design
+
+To adopt these libraries it's required to define a value just before inclusion
+in **one** file only in the project:
+
+```c
+#define EV_SOURCE
+#include "ev.h"
+```
+
+Or in case of `ev_tcp.h`
+
+```c
+#define EV_SOURCE
+#define EV_TCP_SOURCE
+#include "ev_tcp.h"
+```
+
 ## Running examples
 
 A simple event-driven echo server
@@ -73,7 +102,6 @@ static void on_connection(ev_tcp_handle *server) {
         free(client);
     else
         ev_tcp_handle_set_on_close(client, on_close);
-
 }
 
 int main(void) {
@@ -108,6 +136,5 @@ Take a look to `examples/` directory for more snippets.
 
 - (Re)Move server abstraction on generic `ev_tcp_handle`, add client
 - UDP helper APIs
-- TLS setup
 - Improve error handling
 - Documentation
