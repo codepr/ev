@@ -30,6 +30,7 @@
 
 #include <netdb.h>
 #include <fcntl.h>
+#include <sys/un.h>
 #ifdef HAVE_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -218,10 +219,20 @@ int ev_tcp_server_init(ev_tcp_server *, ev_context *, int);
  * be defined and passed as argument or it will return an error.
  * Under the hood the listening socket created is set to non-blocking mode and
  * registered to the ev_tcp_server context as an EV_READ event with
- * `conn_callback` as a read-callback to be called on reading-ready event by
+ * `conn_callback` as a read-callback to be invoked on reading-ready event by
  * the kernel.
  */
 int ev_tcp_server_listen(ev_tcp_server *, const char *, int, conn_callback);
+
+/*
+ * Bind to a path on the filesystem, creating an UNIX socket to listen on,
+ * requires an on_connection callback to be defined and passed as argument or
+ * it will return an error.
+ * The binding socket is set to non-blocking mode and registered to the
+ * ev_tcp_server context as an EV_READ event with `conn_callback` as a read
+ * callback to be invoked on reading-ready events by teh kernel.
+ */
+int ev_tcp_server_listen_unix(ev_tcp_server *, const char *, conn_callback);
 
 /*
  * Start the tcp server, it's a blocking call that calls ev_run on the
@@ -588,6 +599,50 @@ int ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
 #endif
     server->handle.c = ev_connection_new(-1);
     return EV_OK;
+}
+
+int ev_tcp_server_listen_unix(ev_tcp_server *server, const char *socketpath,
+                              conn_callback on_connection) {
+    if (!on_connection)
+        return EV_TCP_MISSING_CALLBACK;
+
+    struct sockaddr_un addr;
+    int fd;
+
+    if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+        goto err;
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+
+    strncpy(addr.sun_path, socketpath, sizeof(addr.sun_path) - 1);
+    unlink(socketpath);
+
+    if (bind(fd, (struct sockaddr*) &addr, sizeof(addr)) == -1)
+        goto err;
+
+    /*
+     * Let's make the socket non-blocking (strongly advised to use the
+     * eventloop)
+     */
+    (void) set_nonblocking(fd);
+
+    /* Finally let's make it listen */
+    if (listen(fd, server->backlog) != 0)
+        goto err;
+
+    server->handle.c->fd = fd;
+    snprintf(server->host, strlen(socketpath), "%s", socketpath);
+    server->port = 0;
+    server->handle.c->on_conn = on_connection;
+
+    // Register to service callback
+    ev_register_event(server->handle.ctx, server->handle.c->fd,
+                      EV_READ, ev_on_accept, server);
+
+    return EV_TCP_SUCCESS;
+err:
+    return EV_TCP_FAILURE;
 }
 
 int ev_tcp_server_listen(ev_tcp_server *server, const char *host,
