@@ -40,6 +40,7 @@ static void on_connection(ev_tcp_handle *server) {
             fprintf(stderr, "Error occured:%s\n", ev_tcp_err(err));
         free(client);
     } else {
+        printf("Connection from %s:%i\n", client->addr, client->port);
         ev_tcp_handle_set_on_close(client, on_close);
     }
 }

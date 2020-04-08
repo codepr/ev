@@ -31,6 +31,7 @@
 #include <netdb.h>
 #include <fcntl.h>
 #include <sys/un.h>
+#include <arpa/inet.h>
 #ifdef HAVE_OPENSSL
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -177,6 +178,8 @@ struct ev_tcp_handle {
     int err;
     size_t to_read;
     size_t to_write;
+    int port;
+    char addr[0xFF];
 #ifdef HAVE_OPENSSL
     int ssl;
     SSL_CTX *ssl_ctx;
@@ -200,8 +203,6 @@ struct ev_tcp_server {
     int run[2];
 #endif
     int backlog;
-    int port;
-    char host[0xff];
 };
 
 /*
@@ -420,13 +421,12 @@ static ev_connection *ev_connection_new(int fd) {
     return conn;
 }
 
-static int ev_accept(int sfd) {
+static int ev_accept(int sfd, struct sockaddr_in *addr) {
     int fd;
-    struct sockaddr_in addr;
-    socklen_t addrlen = sizeof(addr);
+    socklen_t addrlen = sizeof(*addr);
 
     /* Let's accept on listening socket */
-    fd = accept(sfd, (struct sockaddr *) &addr, &addrlen);
+    fd = accept(sfd, (struct sockaddr *) addr, &addrlen);
 
     if (fd <= 0)
         goto exit;
@@ -632,8 +632,8 @@ int ev_tcp_server_listen_unix(ev_tcp_server *server, const char *socketpath,
         goto err;
 
     server->handle.c->fd = fd;
-    snprintf(server->host, strlen(socketpath), "%s", socketpath);
-    server->port = 0;
+    snprintf(server->handle.addr, strlen(socketpath), "%s", socketpath);
+    server->handle.port = 0;
     server->handle.c->on_conn = on_connection;
 
     // Register to service callback
@@ -696,8 +696,8 @@ int ev_tcp_server_listen(ev_tcp_server *server, const char *host,
         goto err;
 
     server->handle.c->fd = listen_fd;
-    snprintf(server->host, strlen(host), "%s", host);
-    server->port = port;
+    snprintf(server->handle.addr, strlen(host), "%s", host);
+    server->handle.port = port;
     server->handle.c->on_conn = on_connection;
 
     // Register to service callback
@@ -738,7 +738,8 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
     if (!on_data)
         return EV_TCP_MISSING_CALLBACK;
     while (1) {
-        int fd = ev_accept(server->c->fd);
+        struct sockaddr_in addr;
+        int fd = ev_accept(server->c->fd, &addr);
         if (fd < 0)
             break;
         if (fd == 0)
@@ -754,6 +755,9 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
 #ifdef HAVE_OPENSSL
         }
 #endif
+        inet_ntop(AF_INET, &addr.sin_addr, client->addr, sizeof(server->addr));
+        client->port = ntohs(addr.sin_port);
+
         client->ctx = server->ctx;
         int err = ev_register_event(server->ctx, fd,
                                     EV_READ, ev_on_recv, client);
