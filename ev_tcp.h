@@ -395,7 +395,8 @@ static void ev_on_send(ev_context *ctx, void *data) {
     if (handle->buffer.size > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
         ev_tcp_enqueue_write(handle);
     } else {
-        handle->c->on_send(handle);
+        if (handle->c->on_send)
+            handle->c->on_send(handle);
         ev_tcp_enqueue_read(handle);
     }
 }
@@ -723,8 +724,10 @@ void ev_tcp_server_stop(ev_tcp_server *server) {
     }
     free(server->handle.c);
 #ifdef HAVE_OPENSSL
-    SSL_CTX_free(server->handle.ssl_ctx);
-    openssl_cleanup();
+    if (server->handle.ssl == 1) {
+        SSL_CTX_free(server->handle.ssl_ctx);
+        openssl_cleanup();
+    }
 #endif
 #if defined(EPOLL) || defined(__linux__)
     eventfd_write(server->run, 1);
