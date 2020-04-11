@@ -397,6 +397,7 @@ static void ev_on_send(ev_context *ctx, void *data) {
     } else {
         if (handle->c->on_send)
             handle->c->on_send(handle);
+        handle->to_write = 0;
         ev_tcp_enqueue_read(handle);
     }
 }
@@ -775,6 +776,7 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
 int ev_tcp_enqueue_write(ev_tcp_handle *client) {
     if (!client->c->on_send)
         return EV_TCP_MISSING_CALLBACK;
+    client->to_write = client->buffer.size;
     int err = ev_fire_event(client->ctx, client->c->fd,
                             EV_WRITE, ev_on_send, client);
     if (err < 0)
