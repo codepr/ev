@@ -9,7 +9,8 @@ A common usage of the library is to craft event-driven TCP servers, `ev_tcp.h`
 exposes a set of APIs to fulfill this purpose in a simple manner.
 
 TLS is supported as well through OpenSSL, and source have to be compiled adding
-a `-DHAVE_OPENSSL=1` to enable it.
+a `-DHAVE_OPENSSL=1` to enable it. Of course it requires libssl-dev installed
+on the host machine to work.
 
 In conclusion the library is composed of 2 distinct modules
 
