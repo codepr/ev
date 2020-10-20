@@ -36,6 +36,10 @@ static void on_data(ev_tcp_handle *client) {
 static void on_connection(ev_tcp_handle *server) {
     int err = 0;
     ev_tcp_handle *client = malloc(sizeof(*client));
+    if (!client) {
+        fprintf(stderr, "On connection failed: Out of memory");
+        exit(EXIT_FAILURE);
+    }
     if ((err = ev_tcp_server_accept(server, client, on_data, NULL)) < 0) {
         if (err == -1)
             fprintf(stderr, "Error occured: %s\n", strerror(errno));
@@ -54,8 +58,12 @@ int main(void) {
     ev_context *ctx = ev_get_ev_context();
     ev_register_cron(ctx, print_stats, NULL, STATS_PERIOD, 0);
     ev_tcp_server server;
-    ev_tcp_server_init(&server, ctx, BACKLOG);
-    int err = ev_tcp_server_listen(&server, HOST, PORT, on_connection);
+    int err = 0;
+    if ((err = ev_tcp_server_init(&server, ctx, BACKLOG)) < 0) {
+        fprintf(stderr, "ev_tcp_server_init failed: %s", ev_tcp_err(err));
+        exit(EXIT_FAILURE);
+    }
+    err = ev_tcp_server_listen(&server, HOST, PORT, on_connection);
     if (err < 0) {
         if (err == -1)
             fprintf(stderr, "Error occured: %s\n", strerror(errno));

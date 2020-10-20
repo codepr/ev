@@ -62,6 +62,7 @@
 #define EV_TCP_FAILURE          -1
 #define EV_TCP_MISSING_CALLBACK -2
 #define EV_TCP_MISSING_CONTEXT  -3
+#define EV_TCP_OUT_OF_MEMORY    -4
 
 /*
  * Default buffer size for connecting client, can be changed on the host
@@ -335,7 +336,7 @@ static inline int set_nonblocking(int fd) {
     if (result == -1)
         goto err;
 
-    return EV_OK;
+    return EV_TCP_SUCCESS;
 
 err:
 
@@ -415,6 +416,8 @@ static void ev_server_on_stop(ev_context *ctx, void *data) {
 
 static ev_connection *ev_connection_new(int fd) {
     ev_connection *conn = malloc(sizeof(*conn));
+    if (!conn)
+        return NULL;
     conn->fd = fd;
     conn->on_conn = NULL;
     conn->on_recv = NULL;
@@ -448,16 +451,21 @@ static void ev_buf_init(ev_buf *buf, size_t capacity) {
 /*
  * init a fresh new tcp_handle which can be used as a server or a client
  */
-static void ev_tcp_handle_init(ev_tcp_handle *handle, int fd) {
+static int ev_tcp_handle_init(ev_tcp_handle *handle, int fd) {
     handle->c = ev_connection_new(fd);
+    if (!handle->c)
+        return EV_TCP_OUT_OF_MEMORY;
     ev_buf_init(&handle->buffer, EV_TCP_BUFSIZE);
     handle->to_read = handle->to_write = 0;
+    return EV_TCP_SUCCESS;
 }
 
 #ifdef HAVE_OPENSSL
 
 static ev_connection *ev_tls_connection_new(int fd, SSL *ssl) {
     ev_tls_connection *conn = malloc(sizeof(*conn));
+    if (!conn)
+        return NULL;
     conn->c.fd = fd;
     conn->ssl = ssl;
     conn->c.on_conn = NULL;
@@ -569,11 +577,14 @@ static SSL *ssl_accept(SSL_CTX *ctx, int fd) {
     return ssl;
 }
 
-static void ev_tls_tcp_handle_init(ev_tcp_handle *handle, int fd, SSL *ssl) {
+static int ev_tls_tcp_handle_init(ev_tcp_handle *handle, int fd, SSL *ssl) {
     handle->c = ev_tls_connection_new(fd, ssl);
+    if (!handle->c)
+        return EV_TCP_OUT_OF_MEMORY;
     ev_buf_init(&handle->buffer, EV_TCP_BUFSIZE);
     handle->ssl = 1;
     handle->to_read = handle->to_write = 0;
+    return EV_TCP_SUCCESS;
 }
 
 #endif // HAVE_OPENSSL
@@ -600,7 +611,9 @@ int ev_tcp_server_init(ev_tcp_server *server, ev_context *ctx, int backlog) {
                       EV_CLOSEFD|EV_READ, ev_server_on_stop, NULL);
 #endif
     server->handle.c = ev_connection_new(-1);
-    return EV_OK;
+    if (!server->handle.c)
+        return EV_TCP_OUT_OF_MEMORY;
+    return EV_TCP_SUCCESS;
 }
 
 int ev_tcp_server_listen_unix(ev_tcp_server *server, const char *socketpath,
@@ -752,10 +765,13 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
         // XXX placeholder
 #ifdef HAVE_OPENSSL
         if (server->ssl == 1) {
-            ev_tls_tcp_handle_init(client, fd, ssl_accept(server->ssl_ctx, fd));
+            if (ev_tls_tcp_handle_init(client, fd,
+                                       ssl_accept(server->ssl_ctx, fd)) < 0)
+                return EV_TCP_OUT_OF_MEMORY;
         } else {
 #endif
-            ev_tcp_handle_init(client, fd);
+            if (ev_tcp_handle_init(client, fd) < 0)
+                return EV_TCP_OUT_OF_MEMORY;
 #ifdef HAVE_OPENSSL
         }
 #endif
@@ -966,6 +982,8 @@ const char *ev_tcp_err(int rc) {
             return "Failure";
         case EV_TCP_MISSING_CALLBACK:
             return "Missing callback";
+        case EV_TCP_OUT_OF_MEMORY:
+            return "Out of memory";
         default:
             return "Unknown error";
     }

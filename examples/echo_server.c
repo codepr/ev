@@ -210,7 +210,11 @@ int main(void) {
     if (listen(listen_fd, 32) != 0)
         goto err;
 
-    ev_init(&ctx, 32);
+    int err = ev_init(&ctx, 32);
+    if (err < EV_OK) {
+        fprintf(stderr, "Ev context init failed: Out of memory");
+        exit(EXIT_FAILURE);
+    }
 
     /* Register a callback on the listening socket for incoming connections */
     ev_register_event(&ctx, listen_fd, EV_READ, on_connection, &listen_fd);

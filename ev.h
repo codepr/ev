@@ -117,6 +117,7 @@
  * Return codes */
 #define EV_OK   0
 #define EV_ERR  -1
+#define EV_OOM  -2
 
 /*
  * Event types, meant to be OR-ed on a bitmask to define the type of an event
@@ -180,7 +181,7 @@ struct ev {
  * The first thing done is the initialization of the api pointer according to
  * the Mux IO backend found on the host machine
  */
-void ev_init(ev_context *, int);
+int ev_init(ev_context *, int);
 
 /*
  * Just check if the ev_context is running, return 0 if it's not running, 1
@@ -322,12 +323,15 @@ static int epoll_del(int efd, int fd) {
     return epoll_ctl(efd, EPOLL_CTL_DEL, fd, NULL);
 }
 
-static void ev_api_init(ev_context *ctx, int events_nr) {
+static int ev_api_init(ev_context *ctx, int events_nr) {
     struct epoll_api *e_api = malloc(sizeof(*e_api));
+    if (!e_api)
+        return EV_OOM;
     e_api->fd = epoll_create1(0);
     e_api->events = calloc(events_nr, sizeof(struct epoll_event));
     ctx->api = e_api;
     ctx->maxfd = events_nr;
+    return EV_OK;
 }
 
 static void ev_api_destroy(ev_context *ctx) {
@@ -417,13 +421,16 @@ struct poll_api {
     struct pollfd *fds;
 };
 
-static void ev_api_init(ev_context *ctx, int events_nr) {
+static int ev_api_init(ev_context *ctx, int events_nr) {
     struct poll_api *p_api = malloc(sizeof(*p_api));
+    if (!p_api)
+        return EV_OOM;
     p_api->nfds = 0;
     p_api->fds = calloc(events_nr, sizeof(struct pollfd));
     p_api->events_monitored = events_nr;
     ctx->api = p_api;
     ctx->maxfd = events_nr;
+    return EV_OK;
 }
 
 static void ev_api_destroy(ev_context *ctx) {
@@ -550,17 +557,20 @@ struct select_api {
     fd_set _rfds, _wfds;
 };
 
-static void ev_api_init(ev_context *ctx, int events_nr) {
+static int ev_api_init(ev_context *ctx, int events_nr) {
     /*
      * fd_set is an array of 32 i32 and each FD is represented by a bit so
      * 32 x 32 = 1024 as hard limit
      */
     assert(events_nr <= SELECT_FDS_HARDCAP);
     struct select_api *s_api = malloc(sizeof(*s_api));
+    if (!s_api)
+        return EV_OOM;
     FD_ZERO(&s_api->rfds);
     FD_ZERO(&s_api->wfds);
     ctx->api = s_api;
     ctx->maxfd = 0;
+    return EV_OK;
 }
 
 static void ev_api_destroy(ev_context *ctx) {
@@ -677,12 +687,15 @@ struct kqueue_api {
     struct kevent *events;
 };
 
-static void ev_api_init(ev_context *ctx, int events_nr) {
+static int ev_api_init(ev_context *ctx, int events_nr) {
     struct kqueue_api *k_api = malloc(sizeof(*k_api));
+    if (!k_api)
+        return EV_OOM;
     k_api->fd = kqueue();
     k_api->events = calloc(events_nr, sizeof(struct kevent));
     ctx->api = k_api;
     ctx->maxfd = events_nr;
+    return EV_OK;
 }
 
 static void ev_api_destroy(ev_context *ctx) {
@@ -891,7 +904,9 @@ ev_context *ev_get_ev_context(void) {
 #endif
         signal(SIGINT, ev_sigint_handler);
         signal(SIGTERM, ev_sigint_handler);
-        ev_init(&ev_default_ctx, EVENTLOOP_MAX_EVENTS);
+        int err = ev_init(&ev_default_ctx, EVENTLOOP_MAX_EVENTS);
+        if (err < EV_OK)
+            return NULL;
 #ifdef __linux__
         ev_register_event(&ev_default_ctx, quit_sig,
                           EV_CLOSEFD | EV_READ, ev_stop_callback, NULL);
@@ -904,14 +919,17 @@ ev_context *ev_get_ev_context(void) {
     return &ev_default_ctx;
 }
 
-void ev_init(ev_context *ctx, int events_nr) {
-    ev_api_init(ctx, events_nr);
+int ev_init(ev_context *ctx, int events_nr) {
+    int err = ev_api_init(ctx, events_nr);
+    if (err < EV_OK)
+        return err;
     ctx->stop = 0;
     ctx->fired_events = 0;
     ctx->is_running = 0;
     ctx->maxevents = events_nr;
     ctx->events_nr = events_nr;
     ctx->events_monitored = calloc(events_nr, sizeof(struct ev));
+    return EV_OK;
 }
 
 int ev_is_running(const ev_context *ctx) {

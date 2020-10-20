@@ -98,6 +98,10 @@ static void on_data(ev_tcp_handle *client) {
 
 static void on_connection(ev_tcp_handle *server) {
     ev_tcp_handle *client = malloc(sizeof(*client));
+    if (!client) {
+        fprintf(stderr, "On connection failed: Out of memory");
+        exit(EXIT_FAILURE);
+    }
     int err = ev_tcp_server_accept(server, client, on_data, on_write);
     if (err < 0)
         free(client);
@@ -109,7 +113,11 @@ int main(void) {
 
     ev_context *ctx = ev_get_ev_context();
     ev_tcp_server server;
-    ev_tcp_server_init(&server, ctx, 128);
+    int err = 0;
+    if ((err = ev_tcp_server_init(&server, ctx, 128)) < 0) {
+        fprintf(stderr, "ev_tcp_server_init failed: %s", ev_tcp_err(err));
+        exit(EXIT_FAILURE);
+    }
     // To set TLS using OpenSSL
     // struct ev_tls_options tls_opt = {
     //     .ca = CA,

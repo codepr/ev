@@ -19,7 +19,11 @@ static void pong(ev_context *ctx, void *data) {
 
 int main(void) {
     ev_context ctx;
-    ev_init(&ctx, 32);
+    int err = ev_init(&ctx, 32);
+    if (err < EV_OK) {
+        fprintf(stderr, "Ev context init failed: Out of memory");
+        exit(EXIT_FAILURE);
+    }
     ev_register_cron(&ctx, ping, NULL, PING_SECONDS, 0);
     ev_register_cron(&ctx, pong, NULL, PONG_SECONDS, 0);
     ev_run(&ctx);
