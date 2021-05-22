@@ -869,10 +869,10 @@ static void ev_add_monitored(ev_context *ctx, int fd, int mask,
      * That is because FD_SETSIZE is fixed to 1024, fd_set is an array of 32
      * i32 and each FD is represented by a bit so 32 x 32 = 1024 as hard limit
      */
-    if (fd > ctx->maxevents) {
+    if (fd >= ctx->maxevents) {
         int i = ctx->maxevents;
         ctx->maxevents = fd;
-        if (fd > ctx->events_nr) {
+        if (fd >= ctx->events_nr) {
             ctx->events_monitored =
                 realloc(ctx->events_monitored, (fd + 1) * sizeof(struct ev));
             for (; i < ctx->maxevents; ++i)
