@@ -1,6 +1,6 @@
 /* BSD 2-Clause License
  *
- * Copyright (c) 2020, Andrea Giacomo Baldan All rights reserved.
+ * Copyright (c) 2023, Andrea Giacomo Baldan All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -534,8 +534,8 @@ static int client_certificate_verify(int preverify_ok, X509_STORE_CTX *ctx) {
 
     (void) ctx;  // Unused
 
-	/* Preverify should check expiry, revocation. */
-	return preverify_ok;
+    /* Preverify should check expiry, revocation. */
+    return preverify_ok;
 }
 
 static void load_certificates(SSL_CTX *ctx, const char *ca,
@@ -547,10 +547,10 @@ static void load_certificates(SSL_CTX *ctx, const char *ca,
     }
 
     SSL_CTX_set_mode(ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER);
-	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, client_certificate_verify);
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, client_certificate_verify);
     SSL_CTX_set_ecdh_auto(ctx, 1);
 
-	if (SSL_CTX_use_certificate_chain_file(ctx, cert) <= 0) {
+    if (SSL_CTX_use_certificate_chain_file(ctx, cert) <= 0) {
         ERR_print_errors_fp(stderr);
         exit(EXIT_FAILURE);
     }

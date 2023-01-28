@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <pthread.h>
 #define EV_SOURCE // add before ev.h
 #include "../ev.h"
 
@@ -130,7 +131,7 @@ static void on_data(ev_context *ctx, void *data) {
         return;
     }
 
-    printf("Received %lu bytes\n", conn->bufsize);
+    /* printf("Received %lu bytes\n", conn->bufsize); */
 
     /* Fire an event to schedule a response */
     ev_fire_event(ctx, conn->fd, EV_WRITE, on_response, conn);
@@ -166,6 +167,29 @@ static void on_response(ev_context *ctx, void *data) {
 err:
 
     fprintf(stderr, "write(2) - error sending data: %s\n", strerror(errno));
+}
+
+static void *worker(void *data) {
+    int listen_fd = *((int *) data);
+    ev_context ctx;
+    int err = ev_init(&ctx, 1024);
+    if (err < EV_OK) {
+        fprintf(stderr, "Ev context init failed: Out of memory");
+        exit(EXIT_FAILURE);
+    }
+
+    /* Register a callback on the listening socket for incoming connections */
+    ev_register_event(&ctx, listen_fd, EV_READ, on_connection, &listen_fd);
+
+    printf("Listening on %s:%i\n", HOST, PORT);
+
+    /* Start the loop */
+    ev_run(&ctx);
+
+    /* Release resources after the loop has been stopped */
+    ev_destroy(&ctx);
+
+    return NULL;
 }
 
 int main(void) {
@@ -210,10 +234,14 @@ int main(void) {
     if (listen(listen_fd, 32) != 0)
         goto err;
 
-    int err = ev_init(&ctx, 32);
+    pthread_t handle[4];
+    for (int i = 0; i < 4; i++) {
+        pthread_create(&handle[i], NULL, (void * (*) (void *)) &worker, &listen_fd);
+    }
+    int err = ev_init(&ctx, 1024);
     if (err < EV_OK) {
-        fprintf(stderr, "Ev context init failed: Out of memory");
-        exit(EXIT_FAILURE);
+       fprintf(stderr, "Ev context init failed: Out of memory");
+       exit(EXIT_FAILURE);
     }
 
     /* Register a callback on the listening socket for incoming connections */
