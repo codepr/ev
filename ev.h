@@ -689,14 +689,15 @@ static void ev_api_destroy(ev_context *ctx) {
 
 static int ev_api_get_event_type(ev_context *ctx, int idx) {
     struct kqueue_api *k_api = ctx->api;
-    int events = k_api->events[idx].flags;
+    int events_flags = k_api->events[idx].flags;
+    int events = k_api->events[idx].filter;
     int ev_mask = ctx->events_monitored[k_api->events[idx].ident].mask;
     // We want to remember the previous events only if they're not of type
     // CLOSE or TIMER
     int mask = ev_mask & (EV_CLOSEFD | EV_TIMERFD) ? ev_mask : EV_NONE;
-    if (events & (EV_EOF | EV_ERROR)) mask |= EV_DISCONNECT;
-    if (events & EVFILT_READ) mask |= EV_READ;
-    if (events & EVFILT_WRITE) mask |= EV_WRITE;
+    if (events_flags & (EV_EOF | EV_ERROR)) mask |= EV_DISCONNECT;
+    if (events == EVFILT_READ) mask |= EV_READ;
+    if (events == EVFILT_WRITE) mask |= EV_WRITE;
     return mask;
 }
 
@@ -730,7 +731,7 @@ static int ev_api_register_event(ev_context *ctx, int fd, int mask) {
     int op = 0;
     if (mask & EV_READ) op |= EVFILT_READ;
     if (mask & EV_WRITE) op |= EVFILT_WRITE;
-    EV_SET(&ke, fd, op, EV_ADD | EV_ENABLE, 0, 0, NULL);
+    EV_SET(&ke, fd, op, EV_ADD | EV_ONESHOT, 0, 0, NULL);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1) return EV_ERR;
     return EV_OK;
 }
@@ -745,7 +746,7 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
     int op = 0;
     if (mask & (EV_READ | EV_EVENTFD)) op |= EVFILT_READ;
     if (mask & EV_WRITE) op |= EVFILT_WRITE;
-    EV_SET(&ke, fd, op, EV_ADD | EV_ENABLE, 0, 0, NULL);
+    EV_SET(&ke, fd, op, EV_ADD | EV_ONESHOT, 0, 0, NULL);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1) return EV_ERR;
     return EV_OK;
 }
@@ -1052,7 +1053,7 @@ int ev_register_cron(ev_context *ctx, void (*callback)(ev_context *, void *),
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     ev_add_monitored(ctx, fd, EV_TIMERFD | EV_READ, callback, data);
     struct kevent ke;
-    EV_SET(&ke, fd, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, period, 0);
+    EV_SET(&ke, fd, EVFILT_TIMER, EV_ADD | EV_ONESHOT, 0, period, 0);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1) return EV_ERR;
     return EV_OK;
 #endif  // __linux__
