@@ -723,7 +723,7 @@ static int ev_api_poll(ev_context *ctx, time_t timeout) {
     ts_timeout.tv_sec = timeout;
     ts_timeout.tv_nsec = 0;
     int err = kevent(k_api->fd, NULL, 0,
-                     k_api->events, ctx->maxevents, &ts_timeout);
+                     k_api->events, ctx->maxevents, timeout > 0 ? &ts_timeout : NULL);
     if (err < 0)
         return EV_ERR;
     return err;
@@ -749,7 +749,7 @@ static int ev_api_register_event(ev_context *ctx, int fd, int mask) {
     int op = 0;
     if (mask & EV_READ) op |= EVFILT_READ;
     if (mask & EV_WRITE) op |= EVFILT_WRITE;
-    EV_SET(&ke, fd, op, EV_ADD, 0, 0, NULL);
+    EV_SET(&ke, fd, op, EV_ADD | EV_ENABLE, 0, 0, NULL);
     if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
         return EV_ERR;
     return EV_OK;
