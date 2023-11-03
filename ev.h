@@ -77,22 +77,22 @@
 #define EVENTLOOP_BACKEND "select"
 #endif
 
-#elif defined(__APPLE__) || defined(__FreeBSD__) \
-    || defined(__OpenBSD__) || defined (__NetBSD__)
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
+    defined(__NetBSD__)
 #define KQUEUE 1
 #define EVENTLOOP_BACKEND "kqueue"
 #else
 #define SELECT 1
 #define EVENTLOOP_BACKEND "select"
-#endif // __linux__
+#endif  // __linux__
 
-#include <time.h>
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
 #include <assert.h>
-#include <unistd.h>
+#include <errno.h>
 #include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
 #ifdef __linux__
 #include <sys/eventfd.h>
 #include <sys/timerfd.h>
@@ -104,33 +104,33 @@
  * Maximum number of events to monitor at a time, useful for epoll and poll
  * calls, the value represents the length of the events array. Tweakable value.
  */
-#define EVENTLOOP_MAX_EVENTS    1024
+#define EVENTLOOP_MAX_EVENTS 1024
 
 /*
  * The timeout to wait before returning on the blocking call that every IO mux
  * implementation accepts, -1 means block forever until new events arrive.
  * Tweakable value.
  */
-#define EVENTLOOP_TIMEOUT       -1
+#define EVENTLOOP_TIMEOUT -1
 
 /*
  * Return codes */
-#define EV_OK   0
-#define EV_ERR  -1
-#define EV_OOM  -2
+#define EV_OK 0
+#define EV_ERR -1
+#define EV_OOM -2
 
 /*
  * Event types, meant to be OR-ed on a bitmask to define the type of an event
  * which can have multiple traits
  */
 enum ev_type {
-    EV_NONE       = 0x00,
-    EV_READ       = 0x01,
-    EV_WRITE      = 0x02,
+    EV_NONE = 0x00,
+    EV_READ = 0x01,
+    EV_WRITE = 0x02,
     EV_DISCONNECT = 0x04,
-    EV_EVENTFD    = 0x08,
-    EV_TIMERFD    = 0x10,
-    EV_CLOSEFD    = 0x20
+    EV_EVENTFD = 0x08,
+    EV_TIMERFD = 0x10,
+    EV_CLOSEFD = 0x20
 };
 
 /*
@@ -151,14 +151,14 @@ enum ev_type {
  */
 typedef struct ev_ctx {
     int events_nr;
-    int maxfd; // the maximum FD monitored by the event context,
-               // events_monitored must be at least maxfd long
+    int maxfd;  // the maximum FD monitored by the event context,
+                // events_monitored must be at least maxfd long
     int stop;
     int is_running;
     int maxevents;
     unsigned long long fired_events;
     struct ev *events_monitored;
-    void *api; // opaque pointer to platform defined backends
+    void *api;  // opaque pointer to platform defined backends
 } ev_context;
 
 /*
@@ -168,10 +168,10 @@ typedef struct ev_ctx {
 struct ev {
     int fd;
     int mask;
-    void *rdata; // opaque pointer for read callback args
-    void *wdata; // opaque pointer for write callback args
-    void (*rcallback)(ev_context *, void *); // read callback
-    void (*wcallback)(ev_context *, void *); // write callback
+    void *rdata;  // opaque pointer for read callback args
+    void *wdata;  // opaque pointer for write callback args
+    void (*rcallback)(ev_context *, void *);  // read callback
+    void (*wcallback)(ev_context *, void *);  // write callback
 };
 
 /*
@@ -244,10 +244,8 @@ int ev_del_fd(ev_context *, int);
 int ev_register_event(ev_context *, int, int,
                       void (*callback)(ev_context *, void *), void *);
 
-int ev_register_cron(ev_context *,
-                     void (*callback)(ev_context *, void *),
-                     void *,
-                     long long, long long);
+int ev_register_cron(ev_context *, void (*callback)(ev_context *, void *),
+                     void *, long long, long long);
 
 /*
  * Register a new event for the next loop cycle to a FD. Equal to ev_watch_fd
@@ -284,13 +282,11 @@ struct epoll_api {
  * descriptor, to be monitored for read/write events
  */
 static int epoll_add(int efd, int fd, int evs, void *data) {
-
     struct epoll_event ev;
     ev.data.fd = fd;
 
     // Being ev.data a union, in case of data != NULL, fd will be set to random
-    if (data)
-        ev.data.ptr = data;
+    if (data) ev.data.ptr = data;
 
     ev.events = evs | EPOLLHUP | EPOLLERR;
 
@@ -302,13 +298,11 @@ static int epoll_add(int efd, int fd, int evs, void *data) {
  * EPOLLOUT for write
  */
 static int epoll_mod(int efd, int fd, int evs, void *data) {
-
     struct epoll_event ev;
     ev.data.fd = fd;
 
     // Being ev.data a union, in case of data != NULL, fd will be set to random
-    if (data)
-        ev.data.ptr = data;
+    if (data) ev.data.ptr = data;
 
     ev.events = evs | EPOLLHUP | EPOLLERR;
 
@@ -325,8 +319,7 @@ static int epoll_del(int efd, int fd) {
 
 static int ev_api_init(ev_context *ctx, int events_nr) {
     struct epoll_api *e_api = malloc(sizeof(*e_api));
-    if (!e_api)
-        return EV_OOM;
+    if (!e_api) return EV_OOM;
     e_api->fd = epoll_create1(0);
     e_api->events = calloc(events_nr, sizeof(struct epoll_event));
     ctx->api = e_api;
@@ -335,8 +328,8 @@ static int ev_api_init(ev_context *ctx, int events_nr) {
 }
 
 static void ev_api_destroy(ev_context *ctx) {
-    close(((struct epoll_api *) ctx->api)->fd);
-    free(((struct epoll_api *) ctx->api)->events);
+    close(((struct epoll_api *)ctx->api)->fd);
+    free(((struct epoll_api *)ctx->api)->events);
     free(ctx->api);
 }
 
@@ -346,7 +339,7 @@ static int ev_api_get_event_type(ev_context *ctx, int idx) {
     int ev_mask = ctx->events_monitored[e_api->events[idx].data.fd].mask;
     // We want to remember the previous events only if they're not of type
     // CLOSE or TIMER
-    int mask = ev_mask & (EV_CLOSEFD|EV_TIMERFD) ? ev_mask : EV_NONE;
+    int mask = ev_mask & (EV_CLOSEFD | EV_TIMERFD) ? ev_mask : EV_NONE;
     if (events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)) mask |= EV_DISCONNECT;
     if (events & EPOLLIN) mask |= EV_READ;
     if (events & EPOLLOUT) mask |= EV_WRITE;
@@ -381,8 +374,7 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
     int op = 0;
     if (mask & EV_READ) op |= EPOLLIN;
     if (mask & EV_WRITE) op |= EPOLLOUT;
-    if (mask & EV_EVENTFD)
-        return epoll_add(e_api->fd, fd, op, NULL);
+    if (mask & EV_EVENTFD) return epoll_add(e_api->fd, fd, op, NULL);
     return epoll_mod(e_api->fd, fd, op, NULL);
 }
 
@@ -390,10 +382,10 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
  * Get the event on the idx position inside the events map. The event can also
  * be an unset one (EV_NONE)
  */
-static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
-                                            int idx, int mask) {
-    (void) mask; // silence the compiler warning
-    int fd = ((struct epoll_api *) ctx->api)->events[idx].data.fd;
+static inline struct ev *ev_api_fetch_event(const ev_context *ctx, int idx,
+                                            int mask) {
+    (void)mask;  // silence the compiler warning
+    int fd = ((struct epoll_api *)ctx->api)->events[idx].data.fd;
     return ctx->events_monitored + fd;
 }
 
@@ -423,8 +415,7 @@ struct poll_api {
 
 static int ev_api_init(ev_context *ctx, int events_nr) {
     struct poll_api *p_api = malloc(sizeof(*p_api));
-    if (!p_api)
-        return EV_OOM;
+    if (!p_api) return EV_OOM;
     p_api->nfds = 0;
     p_api->fds = calloc(events_nr, sizeof(struct pollfd));
     p_api->events_monitored = events_nr;
@@ -434,7 +425,7 @@ static int ev_api_init(ev_context *ctx, int events_nr) {
 }
 
 static void ev_api_destroy(ev_context *ctx) {
-    free(((struct poll_api *) ctx->api)->fds);
+    free(((struct poll_api *)ctx->api)->fds);
     free(ctx->api);
 }
 
@@ -443,8 +434,8 @@ static int ev_api_get_event_type(ev_context *ctx, int idx) {
     int ev_mask = ctx->events_monitored[p_api->fds[idx].fd].mask;
     // We want to remember the previous events only if they're not of type
     // CLOSE or TIMER
-    int mask = ev_mask & (EV_CLOSEFD|EV_TIMERFD) ? ev_mask : 0;
-    if (p_api->fds[idx].revents & (POLLHUP|POLLERR)) mask |= EV_DISCONNECT;
+    int mask = ev_mask & (EV_CLOSEFD | EV_TIMERFD) ? ev_mask : 0;
+    if (p_api->fds[idx].revents & (POLLHUP | POLLERR)) mask |= EV_DISCONNECT;
     if (p_api->fds[idx].revents & POLLIN) mask |= EV_READ;
     if (p_api->fds[idx].revents & POLLOUT) mask |= EV_WRITE;
     return mask;
@@ -453,8 +444,7 @@ static int ev_api_get_event_type(ev_context *ctx, int idx) {
 static int ev_api_poll(ev_context *ctx, time_t timeout) {
     struct poll_api *p_api = ctx->api;
     int err = poll(p_api->fds, p_api->nfds, timeout);
-    if (err < 0)
-        return EV_ERR;
+    if (err < 0) return EV_ERR;
     return p_api->nfds;
 }
 
@@ -472,7 +462,7 @@ static int ev_api_watch_fd(ev_context *ctx, int fd) {
     if (p_api->nfds >= p_api->events_monitored) {
         p_api->events_monitored *= 2;
         p_api->fds = realloc(p_api->fds,
-                                 p_api->events_monitored * sizeof(struct pollfd));
+                             p_api->events_monitored * sizeof(struct pollfd));
     }
     return EV_OK;
 }
@@ -484,7 +474,7 @@ static int ev_api_del_fd(ev_context *ctx, int fd) {
             p_api->fds[i].fd = -1;
             p_api->fds[i].events = 0;
             // Resize fds array
-            for(int j = i; j < p_api->nfds-1; ++j)
+            for (int j = i; j < p_api->nfds - 1; ++j)
                 p_api->fds[j].fd = p_api->fds[j + 1].fd;
             p_api->nfds--;
             break;
@@ -505,7 +495,7 @@ static int ev_api_register_event(ev_context *ctx, int fd, int mask) {
     if (p_api->nfds >= p_api->events_monitored) {
         p_api->events_monitored *= 2;
         p_api->fds = realloc(p_api->fds,
-                                 p_api->events_monitored * sizeof(struct pollfd));
+                             p_api->events_monitored * sizeof(struct pollfd));
     }
     return EV_OK;
 }
@@ -525,9 +515,9 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
  * Get the event on the idx position inside the events map. The event can also
  * be an unset one (EV_NONE)
  */
-static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
-                                            int idx, int mask) {
-    return ctx->events_monitored + ((struct poll_api *) ctx->api)->fds[idx].fd;
+static inline struct ev *ev_api_fetch_event(const ev_context *ctx, int idx,
+                                            int mask) {
+    return ctx->events_monitored + ((struct poll_api *)ctx->api)->fds[idx].fd;
 }
 
 #elif defined(SELECT)
@@ -564,8 +554,7 @@ static int ev_api_init(ev_context *ctx, int events_nr) {
      */
     assert(events_nr <= SELECT_FDS_HARDCAP);
     struct select_api *s_api = malloc(sizeof(*s_api));
-    if (!s_api)
-        return EV_OOM;
+    if (!s_api) return EV_OOM;
     FD_ZERO(&s_api->rfds);
     FD_ZERO(&s_api->wfds);
     ctx->api = s_api;
@@ -573,16 +562,14 @@ static int ev_api_init(ev_context *ctx, int events_nr) {
     return EV_OK;
 }
 
-static void ev_api_destroy(ev_context *ctx) {
-    free(ctx->api);
-}
+static void ev_api_destroy(ev_context *ctx) { free(ctx->api); }
 
 static int ev_api_get_event_type(ev_context *ctx, int idx) {
     struct select_api *s_api = ctx->api;
     int ev_mask = ctx->events_monitored[idx].mask;
     // We want to remember the previous events only if they're not of type
     // CLOSE or TIMER
-    int mask = ev_mask & (EV_CLOSEFD|EV_TIMERFD) ? ev_mask : 0;
+    int mask = ev_mask & (EV_CLOSEFD | EV_TIMERFD) ? ev_mask : 0;
     /*
      * Select checks all FDs by looping to the highest registered FD it
      * currently monitor. Even non set or non monitored FDs are inspected, we
@@ -603,14 +590,13 @@ static int ev_api_get_event_type(ev_context *ctx, int idx) {
 
 static int ev_api_poll(ev_context *ctx, time_t timeout) {
     struct timeval *tv =
-        timeout > 0 ? &(struct timeval){ 0, timeout * 1000 } : NULL;
+        timeout > 0 ? &(struct timeval){0, timeout * 1000} : NULL;
     struct select_api *s_api = ctx->api;
     // Re-initialize fdset arrays cause select call side-effect the originals
     memcpy(&s_api->_rfds, &s_api->rfds, sizeof(fd_set));
     memcpy(&s_api->_wfds, &s_api->wfds, sizeof(fd_set));
     int err = select(ctx->maxfd + 1, &s_api->_rfds, &s_api->_wfds, NULL, tv);
-    if (err < 0)
-        return EV_ERR;
+    if (err < 0) return EV_ERR;
     return ctx->maxfd + 1;
 }
 
@@ -618,8 +604,7 @@ static int ev_api_watch_fd(ev_context *ctx, int fd) {
     struct select_api *s_api = ctx->api;
     FD_SET(fd, &s_api->rfds);
     // Check for a possible new max fd, we don't want to miss events on FDs
-    if (fd > ctx->maxfd)
-        ctx->maxfd = fd;
+    if (fd > ctx->maxfd) ctx->maxfd = fd;
     return EV_OK;
 }
 
@@ -632,8 +617,8 @@ static int ev_api_del_fd(ev_context *ctx, int fd) {
      * value based on the bits that are still turned on in the rfds set.
      */
     if (fd == ctx->maxfd) {
-        while (!FD_ISSET(ctx->maxfd, &s_api->rfds)
-               && !FD_ISSET(ctx->maxfd, &s_api->wfds))
+        while (!FD_ISSET(ctx->maxfd, &s_api->rfds) &&
+               !FD_ISSET(ctx->maxfd, &s_api->wfds))
             ctx->maxfd -= 1;
     }
     return EV_OK;
@@ -644,8 +629,7 @@ static int ev_api_register_event(ev_context *ctx, int fd, int mask) {
     if (mask & EV_READ) FD_SET(fd, &s_api->rfds);
     if (mask & EV_WRITE) FD_SET(fd, &s_api->wfds);
     // Check for a possible new max fd, we don't want to miss events on FDs
-    if (fd > ctx->maxfd)
-        ctx->maxfd = fd;
+    if (fd > ctx->maxfd) ctx->maxfd = fd;
     return EV_OK;
 }
 
@@ -660,8 +644,8 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
  * Get the event on the idx position inside the events map. The event can also
  * be an unset one (EV_NONE)
  */
-static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
-                                            int idx, int mask) {
+static inline struct ev *ev_api_fetch_event(const ev_context *ctx, int idx,
+                                            int mask) {
     return ctx->events_monitored + idx;
 }
 
@@ -678,9 +662,9 @@ static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
  * instead of relying on support mechanisms like `timerfd` on linux.
  */
 
-#include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
+#include <sys/types.h>
 
 struct kqueue_api {
     int fd;
@@ -689,8 +673,7 @@ struct kqueue_api {
 
 static int ev_api_init(ev_context *ctx, int events_nr) {
     struct kqueue_api *k_api = malloc(sizeof(*k_api));
-    if (!k_api)
-        return EV_OOM;
+    if (!k_api) return EV_OOM;
     k_api->fd = kqueue();
     k_api->events = calloc(events_nr, sizeof(struct kevent));
     ctx->api = k_api;
@@ -699,8 +682,8 @@ static int ev_api_init(ev_context *ctx, int events_nr) {
 }
 
 static void ev_api_destroy(ev_context *ctx) {
-    close(((struct kqueue_api *) ctx->api)->fd);
-    free(((struct kqueue_api *) ctx->api)->events);
+    close(((struct kqueue_api *)ctx->api)->fd);
+    free(((struct kqueue_api *)ctx->api)->events);
     free(ctx->api);
 }
 
@@ -722,10 +705,9 @@ static int ev_api_poll(ev_context *ctx, time_t timeout) {
     struct timespec ts_timeout;
     ts_timeout.tv_sec = timeout;
     ts_timeout.tv_nsec = 0;
-    int err = kevent(k_api->fd, NULL, 0,
-                     k_api->events, ctx->maxevents, timeout > 0 ? &ts_timeout : NULL);
-    if (err < 0)
-        return EV_ERR;
+    int err = kevent(k_api->fd, NULL, 0, k_api->events, ctx->maxevents,
+                     timeout > 0 ? &ts_timeout : NULL);
+    if (err < 0) return EV_ERR;
     return err;
 }
 
@@ -738,8 +720,7 @@ static int ev_api_del_fd(ev_context *ctx, int fd) {
     if (ev_mask & EV_WRITE) mask |= EVFILT_WRITE;
     if (ev_mask & EV_TIMERFD) mask |= EVFILT_TIMER;
     EV_SET(&ke, fd, mask, EV_DELETE, 0, 0, NULL);
-    if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
-        return EV_ERR;
+    if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1) return EV_ERR;
     return EV_OK;
 }
 
@@ -750,8 +731,7 @@ static int ev_api_register_event(ev_context *ctx, int fd, int mask) {
     if (mask & EV_READ) op |= EVFILT_READ;
     if (mask & EV_WRITE) op |= EVFILT_WRITE;
     EV_SET(&ke, fd, op, EV_ADD | EV_ENABLE, 0, 0, NULL);
-    if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
-        return EV_ERR;
+    if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1) return EV_ERR;
     return EV_OK;
 }
 
@@ -766,8 +746,7 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
     if (mask & (EV_READ | EV_EVENTFD)) op |= EVFILT_READ;
     if (mask & EV_WRITE) op |= EVFILT_WRITE;
     EV_SET(&ke, fd, op, EV_ADD | EV_ENABLE, 0, 0, NULL);
-    if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
-        return EV_ERR;
+    if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1) return EV_ERR;
     return EV_OK;
 }
 
@@ -775,14 +754,14 @@ static int ev_api_fire_event(ev_context *ctx, int fd, int mask) {
  * Get the event on the idx position inside the events map. The event can also
  * be an unset one (EV_NONE)
  */
-static inline struct ev *ev_api_fetch_event(const ev_context *ctx,
-                                            int idx, int mask) {
-    (void) mask; // silence compiler warning
-    int fd = ((struct kqueue_api *) ctx->api)->events[idx].ident;
+static inline struct ev *ev_api_fetch_event(const ev_context *ctx, int idx,
+                                            int mask) {
+    (void)mask;  // silence compiler warning
+    int fd = ((struct kqueue_api *)ctx->api)->events[idx].ident;
     return ctx->events_monitored + fd;
 }
 
-#endif // KQUEUE
+#endif  // KQUEUE
 
 static ev_context ev_default_ctx;
 static int ev_default_ctx_inited = 0;
@@ -794,11 +773,11 @@ static int quit_sig[2];
 
 // Stops epoll_wait loops by sending an event
 static void ev_sigint_handler(int signum) {
-    (void) signum;
+    (void)signum;
 #ifdef __linux__
     eventfd_write(quit_sig, 1);
 #else
-    (void) write(quit_sig[0], &(unsigned long) {1}, sizeof(unsigned long));
+    (void)write(quit_sig[0], &(unsigned long){1}, sizeof(unsigned long));
 #endif
 }
 
@@ -807,7 +786,7 @@ static void ev_sigint_handler(int signum) {
  * the running loop, unblocking the call.
  */
 static void ev_stop_callback(ev_context *ctx, void *arg) {
-    (void) arg;
+    (void)arg;
     ev_stop(ctx);
 }
 
@@ -826,7 +805,7 @@ static int ev_process_event(ev_context *ctx, int idx, int mask) {
         err = eventfd_read(fd, &(eventfd_t){0});
 #else
         err = read(fd, &(unsigned long){0}, sizeof(unsigned long));
-#endif // __linux__
+#endif  // __linux__
         if (err < 0) return EV_OK;
         e->rcallback(ctx, e->rdata);
         ++fired;
@@ -836,7 +815,7 @@ static int ev_process_event(ev_context *ctx, int idx, int mask) {
             err = eventfd_read(fd, &(eventfd_t){0L});
 #else
             err = read(fd, &(unsigned long){0}, sizeof(unsigned long));
-#endif // __linux__
+#endif  // __linux__
             close(fd);
         } else if (mask & EV_TIMERFD) {
             err = read(fd, &(unsigned long int){0L}, sizeof(unsigned long int));
@@ -905,14 +884,13 @@ ev_context *ev_get_ev_context(void) {
         signal(SIGINT, ev_sigint_handler);
         signal(SIGTERM, ev_sigint_handler);
         int err = ev_init(&ev_default_ctx, EVENTLOOP_MAX_EVENTS);
-        if (err < EV_OK)
-            return NULL;
+        if (err < EV_OK) return NULL;
 #ifdef __linux__
-        ev_register_event(&ev_default_ctx, quit_sig,
-                          EV_CLOSEFD | EV_READ, ev_stop_callback, NULL);
+        ev_register_event(&ev_default_ctx, quit_sig, EV_CLOSEFD | EV_READ,
+                          ev_stop_callback, NULL);
 #else
-        ev_register_event(&ev_default_ctx, quit_sig[1],
-                          EV_CLOSEFD | EV_READ, ev_stop_callback, NULL);
+        ev_register_event(&ev_default_ctx, quit_sig[1], EV_CLOSEFD | EV_READ,
+                          ev_stop_callback, NULL);
 #endif
         ev_default_ctx_inited = 1;
     }
@@ -921,8 +899,7 @@ ev_context *ev_get_ev_context(void) {
 
 int ev_init(ev_context *ctx, int events_nr) {
     int err = ev_api_init(ctx, events_nr);
-    if (err < EV_OK)
-        return err;
+    if (err < EV_OK) return err;
     ctx->stop = 0;
     ctx->fired_events = 0;
     ctx->is_running = 0;
@@ -932,9 +909,7 @@ int ev_init(ev_context *ctx, int events_nr) {
     return EV_OK;
 }
 
-int ev_is_running(const ev_context *ctx) {
-    return ctx->is_running;
-}
+int ev_is_running(const ev_context *ctx) { return ctx->is_running; }
 
 void ev_destroy(ev_context *ctx) {
     for (int i = 0; i < ctx->maxevents; ++i) {
@@ -969,14 +944,13 @@ int ev_run(ev_context *ctx) {
     ctx->is_running = 1;
     while (!ctx->stop) {
         /*
-         * blocks polling for events, -1 means forever. Returns only in case of
-         * valid events ready to be processed or errors
+         * blocks polling for events, -1 means forever. Returns only in
+         * case of valid events ready to be processed or errors
          */
         n = ev_poll(ctx, EVENTLOOP_TIMEOUT);
         if (n < 0) {
             /* Signals to all threads. Ignore it for now */
-            if (errno == EINTR)
-                continue;
+            if (errno == EINTR) continue;
             /* Error occured, break the loop */
             break;
         }
@@ -1042,9 +1016,9 @@ int ev_register_event(ev_context *ctx, int fd, int mask,
     if (ret < 0) return EV_ERR;
     if (mask & EV_EVENTFD)
 #ifdef __linux__
-        (void) eventfd_write(fd, 1);
+        (void)eventfd_write(fd, 1);
 #else
-        (void) write(fd, &(unsigned long){1}, sizeof(unsigned long));
+        (void)write(fd, &(unsigned long){1}, sizeof(unsigned long));
 #endif
     return EV_OK;
 }
@@ -1054,10 +1028,8 @@ int ev_register_event(ev_context *ctx, int fd, int mask,
  * loop, specifying, seconds and/or nanoseconds defining how often the callback
  * should be executed.
  */
-int ev_register_cron(ev_context *ctx,
-                     void (*callback)(ev_context *, void *),
-                     void *data,
-                     long long s, long long ns) {
+int ev_register_cron(ev_context *ctx, void (*callback)(ev_context *, void *),
+                     void *data, long long s, long long ns) {
 #ifdef __linux__
     struct itimerspec timer;
     memset(&timer, 0x00, sizeof(timer));
@@ -1068,24 +1040,22 @@ int ev_register_cron(ev_context *ctx,
 
     int timerfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
 
-    if (timerfd_settime(timerfd, 0, &timer, NULL) < 0)
-        return EV_ERR;
+    if (timerfd_settime(timerfd, 0, &timer, NULL) < 0) return EV_ERR;
 
     // Add the timer to the event loop
-    ev_add_monitored(ctx, timerfd, EV_TIMERFD|EV_READ, callback, data);
+    ev_add_monitored(ctx, timerfd, EV_TIMERFD | EV_READ, callback, data);
     return ev_api_watch_fd(ctx, timerfd);
 #else
     struct kqueue_api *k_api = ctx->api;
     // milliseconds
-    unsigned period = (s * 1000)  + (ns / 100);
+    unsigned period = (s * 1000) + (ns / 100);
     int fd = socket(AF_INET, SOCK_STREAM, 0);
-    ev_add_monitored(ctx, fd, EV_TIMERFD|EV_READ, callback, data);
+    ev_add_monitored(ctx, fd, EV_TIMERFD | EV_READ, callback, data);
     struct kevent ke;
     EV_SET(&ke, fd, EVFILT_TIMER, EV_ADD | EV_ENABLE, 0, period, 0);
-    if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1)
-        return EV_ERR;
+    if (kevent(k_api->fd, &ke, 1, NULL, 0, NULL) == -1) return EV_ERR;
     return EV_OK;
-#endif // __linux__
+#endif  // __linux__
 }
 
 /*
@@ -1114,13 +1084,13 @@ int ev_fire_event(ev_context *ctx, int fd, int mask,
         ret = eventfd_write(fd, 1);
 #else
         ret = write(fd, &(unsigned long){1}, sizeof(unsigned long));
-#endif // __linux__
+#endif  // __linux__
         if (ret < 0) return EV_ERR;
     }
     return EV_OK;
 }
 
-#endif // EV_SOURCE_ONCE
-#endif // EV_SOURCE
+#endif  // EV_SOURCE_ONCE
+#endif  // EV_SOURCE
 
-#endif // EV_H
+#endif  // EV_H
