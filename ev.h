@@ -191,10 +191,10 @@ int ev_is_running(const ev_context *);
 
 /*
  * By design ev library can instantiate a default `ev_context`, calling
- * `ev_get_ev_context` the first time will create the loop as a singleton,
+ * `ev_get_context` the first time will create the loop as a singleton,
  * subsequent calls will retrieve the same first context allocated
  */
-ev_context *ev_get_ev_context(void);
+ev_context *ev_get_context(void);
 
 /*
  * Call custom destroy function based on the api type set up calling `ev_init`
@@ -895,7 +895,7 @@ static inline int ev_get_event_type(ev_context *ctx, int idx) {
     return ev_api_get_event_type(ctx, idx);
 }
 
-ev_context *ev_get_ev_context(void) {
+ev_context *ev_get_context(void) {
     if (ev_default_ctx_inited == 0) {
 #ifdef __linux__
         quit_sig = eventfd(0, EFD_NONBLOCK);
