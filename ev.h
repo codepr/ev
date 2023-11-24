@@ -143,7 +143,7 @@ enum ev_type {
  * The context is the main handler of the event loop and is meant to be passed
  * around on each callback fired during the execution of the host application.
  *
- * Idealy it should be at most one context per thread, it's the user's duty to
+ * Ideally it should be at most one context per thread, it's the user's duty to
  * take care of locking of possible shared parts and datastrutures but it's
  * definetly a possibility to run multiple theads each one with his own loop,
  * depending on the scenario, use-case by use-case it can be a feasible
@@ -162,7 +162,7 @@ typedef struct ev_ctx {
 } ev_context;
 
 /*
- * Event struture used as the main carrier of clients informations, it will be
+ * Event structure used as the main carrier of clients information, it will be
  * tracked by an array in every context created
  */
 struct ev {
@@ -177,7 +177,7 @@ struct ev {
 /*
  * Initialize the ev_context, accepting the number of events to monitor; that
  * value is indicative as if a FD exceeds the cap set the events array will be
- * resized.
+ * resized accordingly.
  * The first thing done is the initialization of the api pointer according to
  * the Mux IO backend found on the host machine
  */
@@ -303,7 +303,6 @@ static int epoll_mod(int efd, int fd, int evs, void *data) {
 
     // Being ev.data a union, in case of data != NULL, fd will be set to random
     if (data) ev.data.ptr = data;
-
     ev.events = evs | EPOLLHUP | EPOLLERR;
 
     return epoll_ctl(efd, EPOLL_CTL_MOD, fd, &ev);
@@ -399,7 +398,7 @@ static inline struct ev *ev_api_fetch_event(const ev_context *ctx, int idx,
  * The poll_api structure contains the number of fds to monitor and the array
  * of pollfd structures associated. This number must be adjusted everytime a
  * client disconnect or a new connection have an fd > nfds to avoid iterating
- * over closed fds everytime a new event is triggered.
+ * over closed fds every time a new event is triggered.
  * As select, poll iterate linearly over all the triggered events, without the
  * hard limit of 1024 connections. It's the second best option available if no
  * epoll or kqueue for Mac OSX are not present.
@@ -449,9 +448,9 @@ static int ev_api_poll(ev_context *ctx, time_t timeout) {
 }
 
 /*
- * Poll maintain in his state the number of file descriptor it monitor in a
+ * Poll maintains in his state the number of file descriptors it monitors in a
  * fixed size array just like the events we monitor over the primitive. If a
- * resize is needed cause the number of fds have reached the length of the fds
+ * resize is needed due to the number of fds have reached the length of the fds
  * array, we must increase its size.
  */
 static int ev_api_watch_fd(ev_context *ctx, int fd) {
@@ -613,7 +612,7 @@ static int ev_api_del_fd(ev_context *ctx, int fd) {
     if (FD_ISSET(fd, &s_api->rfds)) FD_CLR(fd, &s_api->rfds);
     if (FD_ISSET(fd, &s_api->wfds)) FD_CLR(fd, &s_api->wfds);
     /*
-     * To remove  FD from select we must determine the new maximum descriptor
+     * To remove FD from select we must determine the new maximum descriptor
      * value based on the bits that are still turned on in the rfds set.
      */
     if (fd == ctx->maxfd) {
@@ -993,7 +992,7 @@ int ev_del_fd(ev_context *ctx, int fd) {
 }
 
 /*
- * Register a new event, semantically it's equal to ev_register_event but
+ * Register a new event, semantically it's equal to ev_fire_event but
  * it's meant to be used when an FD is not already watched by the event loop.
  * It could be easily integrated in ev_fire_event call but I prefer maintain
  * the samantic separation of responsibilities.

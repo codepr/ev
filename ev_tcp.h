@@ -54,7 +54,7 @@
  * on non-blocking sockets and IO multiplexing using ev as underlying
  * event-loop.
  *
- * As of now it's stll very simple, the only tweakable value is the buffer
+ * As of now it's still very simple, the only tweakable value is the buffer
  * memory size for incoming and to-be-written stream of bytes for clients, the
  * default value is 2048.
  *
@@ -396,9 +396,9 @@ static void ev_on_recv(ev_context *ctx, void *data) {
     if (handle->err == EV_TCP_SUCCESS) goto close;
 
     /*
-     * If EAGAIN happened and there still more data to read, re-arm
+     * If EAGAIN happened and there is still more data to read, re-arm
      * for a read on the next loop cycle, hopefully the kernel will be
-     * available to send remaining data
+     * available to send the remaining data
      */
     if (handle->to_read > 0 && handle->buffer.size < handle->to_read &&
         (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -419,9 +419,9 @@ static void ev_on_send(ev_context *ctx, void *data) {
     ev_tcp_handle *handle = data;
     handle->err = ev_tcp_write(handle);
     /*
-     * If EAGAIN happened and there still more data to be written out, re-arm
+     * If EAGAIN happened and there is still more data to be written out, re-arm
      * for a write on the next loop cycle, hopefully the kernel will be
-     * available to send remaining data
+     * available to send the remaining data
      */
     if (handle->buffer.size > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
         ev_tcp_enqueue_write(handle);
@@ -482,31 +482,30 @@ static int ev_connect(char *addr, int port) {
     if (getaddrinfo(addr, portstr, &hints, &servinfo) != 0) return -1;
 
     for (p = servinfo; p != NULL; p = p->ai_next) {
-        /* Try to create the socket and to connect it.
-         * If we fail in the socket() call, or on connect(), we retry with
-         * the next entry in servinfo. */
+        // Try to create the socket and to connect it.
+        // If we fail in the socket() call, or on connect(), we retry with
+        // the next entry in servinfo.
         if ((s = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
             continue;
 
-        /* Put in non blocking state if needed. */
+        // Put in non blocking state if needed
         if (set_nonblocking(s) == -1) {
             close(s);
             break;
         }
 
-        /* Try to connect. */
         if (connect(s, p->ai_addr, p->ai_addrlen) == -1) {
-            /* If the socket is non-blocking, it is ok for connect() to
-             * return an EINPROGRESS error here. */
+            // If the socket is non-blocking, it is ok for connect() to
+            // return an EINPROGRESS error here.
             if (errno == EINPROGRESS) return s;
 
-            /* Otherwise it's an error. */
+            // Otherwise it's an error
             close(s);
             break;
         }
 
-        /* If we ended an iteration of the for loop without errors, we
-         * have a connected socket. Let's return to the caller. */
+        // If we ended an iteration of the for loop without errors, we
+        // have a connected socket. Let's return to the caller.
         retval = s;
         break;
     }
@@ -905,9 +904,7 @@ void ev_tcp_fill_buffer(ev_tcp_handle *handle, const unsigned char *src,
     ev_buf_copy(&handle->buffer, src, len);
 }
 
-void ev_tcp_zero_buffer(ev_tcp_handle *handle) {
-    ev_buf_zero(&handle->buffer);
-}
+void ev_tcp_zero_buffer(ev_tcp_handle *handle) { ev_buf_zero(&handle->buffer); }
 
 ssize_t ev_tcp_read(ev_tcp_handle *client) {
 #ifdef HAVE_OPENSSL
