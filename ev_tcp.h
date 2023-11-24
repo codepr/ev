@@ -38,6 +38,13 @@
 #endif
 #include "ev.h"
 
+#define TODO                                                                  \
+    do {                                                                      \
+        fprintf(stderr, "%s:%d: %s is not implemented\n", __FILE__, __LINE__, \
+                __func__);                                                    \
+        abort();                                                              \
+    } while (0)
+
 /*
  * =================================
  *  TCP server helper APIs exposed
@@ -170,7 +177,7 @@ struct ev_tls_options {
 
 /*
  * General wrapper around a connection, it is comprised of a buffer, a pointer
- * to the ev_context that must be set on creation, two optionally sentinels
+ * to the ev_context that must be set on creation, two optionally set sentinels
  * for the read/write queue and an err reporting field.
  * Two fieds are added if TLS is enabled, ssl, a flag indicating it's
  * abilitation and a pointer to an SSL_CTX to be used as the server context.
@@ -250,13 +257,18 @@ void ev_tcp_server_run(ev_tcp_server *);
 void ev_tcp_server_stop(ev_tcp_server *);
 
 /*
- * Accept the connection, requires a pointer to ev_tcp_client and a on_recv
- * callback, othersiwse it will return an err. Up to the user to manage the
+ * Accept the connection, requires a pointer to ev_tcp_handle and a on_recv
+ * callback, otherwise it will return an err. Up to the user to manage the
  * ownership of the client, tough generally it's advisable to allocate it on
  * the heap to being able to juggle it around other callbacks
  */
 int ev_tcp_server_accept(ev_tcp_handle *, ev_tcp_handle *, recv_callback,
                          send_callback);
+/*
+ * Create a connection to the specified host:port in the ev_tcp_handle,
+ * optionally accepts a recv_callback and a send_callback
+ */
+int ev_tcp_connect(ev_tcp_handle *, recv_callback, send_callback);
 
 /*
  * Fires an EV_READ event using a service private function to just read the
@@ -277,6 +289,11 @@ int ev_tcp_enqueue_write(ev_tcp_handle *);
  * closing of a connection
  */
 int ev_tcp_enqueue_close(ev_tcp_handle *);
+
+/*
+ * Fills the `ev_buf` with the content from the src buffer
+ */
+void ev_tcp_fill_buffer(ev_tcp_handle *, const unsigned char *, size_t);
 
 /*
  * Read all the incoming bytes on the connected client FD and store the to the
@@ -304,6 +321,17 @@ void ev_tcp_close_handle(ev_tcp_handle *);
  * errors returned by the helper APIs
  */
 const char *ev_tcp_err(int);
+
+/*
+ * Set an on_recv function to be called when new data comes from the connection
+ */
+void ev_tcp_handle_set_on_recv(ev_tcp_handle *, recv_callback);
+
+/*
+ * Set an on_send function to be called when data is ready to be sent in
+ * response in the connection
+ */
+void ev_tcp_handle_set_on_send(ev_tcp_handle *, send_callback);
 
 /*
  * Set an on_close function to be called after the shutdown of a connection
@@ -436,10 +464,61 @@ exit:
     return fd;
 }
 
+static int ev_connect(char *addr, int port) {
+    int s, retval = -1;
+    struct addrinfo hints, *servinfo, *p;
+
+    char portstr[6]; /* Max 16 bit number string length. */
+    snprintf(portstr, sizeof(portstr), "%d", port);
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    if (getaddrinfo(addr, portstr, &hints, &servinfo) != 0) return -1;
+
+    for (p = servinfo; p != NULL; p = p->ai_next) {
+        /* Try to create the socket and to connect it.
+         * If we fail in the socket() call, or on connect(), we retry with
+         * the next entry in servinfo. */
+        if ((s = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+            continue;
+
+        /* Put in non blocking state if needed. */
+        if (set_nonblocking(s) == -1) {
+            close(s);
+            break;
+        }
+
+        /* Try to connect. */
+        if (connect(s, p->ai_addr, p->ai_addrlen) == -1) {
+            /* If the socket is non-blocking, it is ok for connect() to
+             * return an EINPROGRESS error here. */
+            if (errno == EINPROGRESS) return s;
+
+            /* Otherwise it's an error. */
+            close(s);
+            break;
+        }
+
+        /* If we ended an iteration of the for loop without errors, we
+         * have a connected socket. Let's return to the caller. */
+        retval = s;
+        break;
+    }
+
+    freeaddrinfo(servinfo);
+    return retval;
+}
+
 static void ev_buf_init(ev_buf *buf, size_t capacity) {
     buf->size = 0;
     buf->capacity = capacity;
     buf->buf = calloc(buf->capacity, sizeof(unsigned char));
+}
+
+static void ev_buf_copy(ev_buf *dst, const unsigned char *src, size_t len) {
+    memcpy(dst->buf, src, len);
+    dst->size = len;
 }
 
 /*
@@ -560,6 +639,14 @@ static SSL *ssl_accept(SSL_CTX *ctx, int fd) {
     SSL_set_accept_state(ssl);
     ERR_clear_error();
     if (SSL_accept(ssl) <= 0) ERR_print_errors_fp(stderr);
+    return ssl;
+}
+
+static SSL *ssl_connect(SSL_CTX *ctx, int fd) {
+    SSL *ssl = SSL_new(ctx);
+    SSL_set_fd(ssl, fd);
+    ERR_clear_error();
+    if (SSL_connect(ssl) <= 0) ERR_print_errors_fp(stderr);
     return ssl;
 }
 
@@ -727,7 +814,7 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
     while (1) {
         struct sockaddr_in addr;
         int fd = ev_accept(server->c->fd, &addr);
-        if (fd < 0) break;
+        if (fd < 0) return EV_TCP_FAILURE;
         if (fd == 0) continue;
 
             // XXX placeholder
@@ -746,12 +833,36 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
         client->port = ntohs(addr.sin_port);
 
         client->ctx = server->ctx;
+
         int err =
             ev_register_event(server->ctx, fd, EV_READ, ev_on_recv, client);
         if (err < 0) return EV_TCP_FAILURE;
+
         client->c->on_recv = on_data;
         client->c->on_send = on_send;
     }
+    return EV_TCP_SUCCESS;
+}
+
+int ev_tcp_connect(ev_tcp_handle *client, recv_callback on_data,
+                   send_callback on_send) {
+    if (!on_data) return EV_TCP_MISSING_CALLBACK;
+
+    int fd = ev_connect(client->addr, client->port);
+    if (fd < 0) return EV_TCP_FAILURE;
+
+#ifdef HAVE_OPENSSL
+    TODO
+#endif
+
+        if (ev_tcp_handle_init(client, fd) < 0) return EV_TCP_OUT_OF_MEMORY;
+
+    int err = ev_register_event(client->ctx, fd, EV_READ, ev_on_recv, client);
+    if (err < 0) return EV_TCP_FAILURE;
+
+    client->c->on_recv = on_data;
+    client->c->on_send = on_send;
+
     return EV_TCP_SUCCESS;
 }
 
@@ -761,6 +872,7 @@ int ev_tcp_enqueue_write(ev_tcp_handle *client) {
     int err =
         ev_fire_event(client->ctx, client->c->fd, EV_WRITE, ev_on_send, client);
     if (err < 0) return EV_TCP_FAILURE;
+
     return EV_TCP_SUCCESS;
 }
 
@@ -769,12 +881,18 @@ int ev_tcp_enqueue_read(ev_tcp_handle *client) {
     int err =
         ev_fire_event(client->ctx, client->c->fd, EV_READ, ev_on_recv, client);
     if (err < 0) return EV_TCP_FAILURE;
+
     return EV_TCP_SUCCESS;
 }
 
 int ev_tcp_enqueue_close(ev_tcp_handle *client) {
     return ev_fire_event(client->ctx, client->c->fd, EV_WRITE, ev_on_close,
                          client);
+}
+
+void ev_tcp_fill_buffer(ev_tcp_handle *handle, const unsigned char *src,
+                        size_t len) {
+    ev_buf_copy(&handle->buffer, src, len);
 }
 
 ssize_t ev_tcp_read(ev_tcp_handle *client) {
@@ -929,6 +1047,14 @@ void ev_tcp_close_handle(ev_tcp_handle *handle) {
     close(fd);
     free(c);
     free(buf);
+}
+
+void ev_tcp_handle_set_on_recv(ev_tcp_handle *h, recv_callback on_recv) {
+    h->c->on_recv = on_recv;
+}
+
+void ev_tcp_handle_set_on_send(ev_tcp_handle *h, send_callback on_send) {
+    h->c->on_send = on_send;
 }
 
 void ev_tcp_handle_set_on_close(ev_tcp_handle *h, close_callback on_close) {

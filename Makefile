@@ -10,6 +10,9 @@ ping-pong: examples/ping_pong.c ev.h
 ev-tcp-server: examples/ev_tcp_server.c ev.h
 	$(CC) $(CFLAGS) examples/ev_tcp_server.c -o ev_tcp_server
 
+ev-tcp-client: examples/ev_tcp_client.c ev.h
+	$(CC) $(CFLAGS) examples/ev_tcp_client.c -o ev_tcp_client
+
 ev-tcp-server-stats: examples/ev_tcp_server_stats.c ev.h
 	$(CC) $(CFLAGS) examples/ev_tcp_server_stats.c -o ev_tcp_server_stats
 

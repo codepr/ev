@@ -30,8 +30,10 @@ test
 ping_pong
 echo_server
 ev_tcp_server
+ev_tcp_client
 ev_tls_tcp_server
 ev_tcp_server_stats
 compile_commands.json
 certs/
 perf.txt
+.clang-format
