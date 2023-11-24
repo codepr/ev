@@ -48,7 +48,7 @@ static void on_connection(ev_tcp_handle *server) {
 
 int main(void) {
 
-    ev_context *ctx = ev_get_ev_context();
+    ev_context *ctx = ev_get_context();
     ev_tcp_server server;
     struct ev_tls_options tls_opt = {
         .ca = CA,

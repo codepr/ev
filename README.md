@@ -111,7 +111,7 @@ static void on_connection(ev_tcp_handle *server) {
 
 int main(void) {
 
-    ev_context *ctx = ev_get_ev_context();
+    ev_context *ctx = ev_get_context();
     ev_tcp_server server;
     int err = 0;
     if ((err = ev_tcp_server_init(&server, ctx, 128)) < 0) {

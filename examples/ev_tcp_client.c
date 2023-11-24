@@ -75,7 +75,7 @@ err:
 
 int main(void) {
 
-    ev_context *ctx = ev_get_ev_context();
+    ev_context *ctx = ev_get_context();
     ev_tcp_handle client = {.ctx = ctx, .addr = HOST, .port = PORT};
 
     int err = 0;
