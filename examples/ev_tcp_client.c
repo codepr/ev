@@ -29,14 +29,15 @@ static void on_tcp_close(ev_tcp_handle *client, int err) {
 }
 
 static void on_tcp_send(ev_tcp_handle *client) {
-    printf("Written %s to server\n", client->buffer.buf);
+    printf("Written %s", client->buffer.buf);
+    ev_tcp_zero_buffer(client);
     // Re-arm TCP client for read
     (void)ev_tcp_enqueue_read(client);
 }
 
 static void on_tcp_recv(ev_tcp_handle *client) {
-    printf("Response => %s (%li bytes)\n", client->buffer.buf,
-           client->buffer.size);
+    printf("Response (%li bytes) => %s", client->buffer.size, client->buffer.buf);
+    ev_tcp_zero_buffer(client);
 }
 
 static void on_stdin(ev_context *ctx, void *ptr) {

@@ -41,7 +41,7 @@ static void on_connection(ev_tcp_handle *server) {
         if (err == -1)
             fprintf(stderr, "Error occured: %s\n", strerror(errno));
         else
-            fprintf(stderr, "Error occured:%s\n", ev_tcp_err(err));
+            fprintf(stderr, "Error occured: %s\n", ev_tcp_err(err));
         free(client);
     } else {
         printf("Connection from %s:%i\n", client->addr, client->port);

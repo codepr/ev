@@ -296,6 +296,11 @@ int ev_tcp_enqueue_close(ev_tcp_handle *);
 void ev_tcp_fill_buffer(ev_tcp_handle *, const unsigned char *, size_t);
 
 /*
+ * Zeros the `ev_buf` content in the `ev_tcp_handle`
+ */
+void ev_tcp_zero_buffer(ev_tcp_handle *);
+
+/*
  * Read all the incoming bytes on the connected client FD and store the to the
  * client buffer along with the total size read. Apply decryption algorithms
  * before storing the plain data on the buffer in case of TLS enabled
@@ -521,6 +526,11 @@ static void ev_buf_copy(ev_buf *dst, const unsigned char *src, size_t len) {
     dst->size = len;
 }
 
+static void ev_buf_zero(ev_buf *dst) {
+    memset(dst->buf, 0, dst->size);
+    dst->size = 0;
+}
+
 /*
  * init a fresh new tcp_handle which can be used as a server or a client
  */
@@ -642,13 +652,13 @@ static SSL *ssl_accept(SSL_CTX *ctx, int fd) {
     return ssl;
 }
 
-static SSL *ssl_connect(SSL_CTX *ctx, int fd) {
-    SSL *ssl = SSL_new(ctx);
-    SSL_set_fd(ssl, fd);
-    ERR_clear_error();
-    if (SSL_connect(ssl) <= 0) ERR_print_errors_fp(stderr);
-    return ssl;
-}
+// static SSL *ssl_connect(SSL_CTX *ctx, int fd) {
+//     SSL *ssl = SSL_new(ctx);
+//     SSL_set_fd(ssl, fd);
+//     ERR_clear_error();
+//     if (SSL_connect(ssl) <= 0) ERR_print_errors_fp(stderr);
+//     return ssl;
+// }
 
 static int ev_tls_tcp_handle_init(ev_tcp_handle *handle, int fd, SSL *ssl) {
     handle->c = ev_tls_connection_new(fd, ssl);
@@ -814,7 +824,7 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
     while (1) {
         struct sockaddr_in addr;
         int fd = ev_accept(server->c->fd, &addr);
-        if (fd < 0) return EV_TCP_FAILURE;
+        if (fd < 0) break;
         if (fd == 0) continue;
 
             // XXX placeholder
@@ -852,10 +862,10 @@ int ev_tcp_connect(ev_tcp_handle *client, recv_callback on_data,
     if (fd < 0) return EV_TCP_FAILURE;
 
 #ifdef HAVE_OPENSSL
-    TODO
+    TODO;
 #endif
 
-        if (ev_tcp_handle_init(client, fd) < 0) return EV_TCP_OUT_OF_MEMORY;
+    if (ev_tcp_handle_init(client, fd) < 0) return EV_TCP_OUT_OF_MEMORY;
 
     int err = ev_register_event(client->ctx, fd, EV_READ, ev_on_recv, client);
     if (err < 0) return EV_TCP_FAILURE;
@@ -893,6 +903,10 @@ int ev_tcp_enqueue_close(ev_tcp_handle *client) {
 void ev_tcp_fill_buffer(ev_tcp_handle *handle, const unsigned char *src,
                         size_t len) {
     ev_buf_copy(&handle->buffer, src, len);
+}
+
+void ev_tcp_zero_buffer(ev_tcp_handle *handle) {
+    ev_buf_zero(&handle->buffer);
 }
 
 ssize_t ev_tcp_read(ev_tcp_handle *client) {
