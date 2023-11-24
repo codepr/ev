@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#define EV_SOURCE     // add before ev_tcp
-#define EV_TCP_SOURCE // add before ev_tcp
+#define EV_SOURCE      // add before ev_tcp
+#define EV_TCP_SOURCE  // add before ev_tcp
 #include "../ev.h"
 #include "../ev_tcp.h"
 
@@ -36,7 +36,8 @@ static void on_tcp_send(ev_tcp_handle *client) {
 }
 
 static void on_tcp_recv(ev_tcp_handle *client) {
-    printf("Response (%li bytes) => %s", client->buffer.size, client->buffer.buf);
+    printf("Response (%li bytes) => %s", client->buffer.size,
+           client->buffer.buf);
     ev_tcp_zero_buffer(client);
 }
 
@@ -48,8 +49,7 @@ static void on_stdin(ev_context *ctx, void *ptr) {
     // Read incoming stream of bytes from user input
     n = read(fd, buf, sizeof(buf));
     if (n < 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK)
-            goto err;
+        if (errno != EAGAIN && errno != EWOULDBLOCK) goto err;
     }
 
     // 0 bytes read means disinput by the client
@@ -75,7 +75,6 @@ err:
 }
 
 int main(void) {
-
     ev_context *ctx = ev_get_context();
     ev_tcp_handle client = {.ctx = ctx, .addr = HOST, .port = PORT};
 
@@ -94,6 +93,5 @@ int main(void) {
     }
     // Blocking call
     ev_run(ctx);
-
     return 0;
 }
