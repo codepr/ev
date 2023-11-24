@@ -1050,7 +1050,7 @@ int ev_register_event(ev_context *ctx, int fd, int mask,
 }
 
 /*
- * Register a periodically repeate callback and args to be passed to a running
+ * Register a periodically repeated callback and args to be passed to a running
  * loop, specifying, seconds and/or nanoseconds defining how often the callback
  * should be executed.
  */
