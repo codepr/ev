@@ -275,20 +275,20 @@ int ev_tcp_connect(ev_tcp_handle *, recv_callback, send_callback);
  * incoming stream of data from a client into the buffer, return an error if no
  * on_recv callback was set, see `ev_tcp_server_set_on_recv`
  */
-int ev_tcp_enqueue_read(ev_tcp_handle *);
+int ev_tcp_queue_read(ev_tcp_handle *);
 
 /*
  * Fires a EV_WRITE event using a service private function to just write the
  * content of the buffer to the client, return an error if no on_send callback
  * was set, see `ev_tcp_server_set_on_send`
  */
-int ev_tcp_enqueue_write(ev_tcp_handle *);
+int ev_tcp_queue_write(ev_tcp_handle *);
 
 /*
  * Fires an EV_WRITE event using a service private function to schedule the
  * closing of a connection
  */
-int ev_tcp_enqueue_close(ev_tcp_handle *);
+int ev_tcp_queue_close(ev_tcp_handle *);
 
 /*
  * Fills the `ev_buf` with the content from the src buffer
@@ -403,7 +403,7 @@ static void ev_on_recv(ev_context *ctx, void *data) {
     if (handle->to_read > 0 && handle->buffer.size < handle->to_read &&
         (errno == EAGAIN || errno == EWOULDBLOCK)) {
         handle->to_read -= handle->buffer.size;
-        ev_tcp_enqueue_read(handle);
+        ev_tcp_queue_read(handle);
     } else {
         handle->c->on_recv(handle);
     }
@@ -411,7 +411,7 @@ static void ev_on_recv(ev_context *ctx, void *data) {
     return;
 
 close:
-    ev_tcp_enqueue_close(handle);
+    ev_tcp_queue_close(handle);
 }
 
 static void ev_on_send(ev_context *ctx, void *data) {
@@ -424,11 +424,11 @@ static void ev_on_send(ev_context *ctx, void *data) {
      * available to send the remaining data
      */
     if (handle->buffer.size > 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-        ev_tcp_enqueue_write(handle);
+        ev_tcp_queue_write(handle);
     } else {
         if (handle->c->on_send) handle->c->on_send(handle);
         handle->to_write = 0;
-        ev_tcp_enqueue_read(handle);
+        ev_tcp_queue_read(handle);
     }
 }
 
@@ -470,16 +470,19 @@ exit:
 }
 
 static int ev_connect(char *addr, int port) {
-    int s, retval = -1;
+    int s, retval = EV_TCP_FAILURE;
     struct addrinfo hints, *servinfo, *p;
 
-    char portstr[6]; /* Max 16 bit number string length. */
+    char portstr[6];
+
     snprintf(portstr, sizeof(portstr), "%d", port);
     memset(&hints, 0, sizeof(hints));
+
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
 
-    if (getaddrinfo(addr, portstr, &hints, &servinfo) != 0) return -1;
+    if (getaddrinfo(addr, portstr, &hints, &servinfo) != 0)
+        return EV_TCP_FAILURE;
 
     for (p = servinfo; p != NULL; p = p->ai_next) {
         // Try to create the socket and to connect it.
@@ -488,7 +491,7 @@ static int ev_connect(char *addr, int port) {
         if ((s = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
             continue;
 
-        // Put in non blocking state if needed
+        // Put in non blocking state
         if (set_nonblocking(s) == -1) {
             close(s);
             break;
@@ -497,13 +500,14 @@ static int ev_connect(char *addr, int port) {
         if (connect(s, p->ai_addr, p->ai_addrlen) == -1) {
             // If the socket is non-blocking, it is ok for connect() to
             // return an EINPROGRESS error here.
-            if (errno == EINPROGRESS) return s;
+            if (errno == EINPROGRESS) goto defer;
 
             // Otherwise it's an error
             close(s);
             break;
         }
 
+    defer:
         // If we ended an iteration of the for loop without errors, we
         // have a connected socket. Let's return to the caller.
         retval = s;
@@ -855,8 +859,6 @@ int ev_tcp_server_accept(ev_tcp_handle *server, ev_tcp_handle *client,
 
 int ev_tcp_connect(ev_tcp_handle *client, recv_callback on_data,
                    send_callback on_send) {
-    if (!on_data) return EV_TCP_MISSING_CALLBACK;
-
     int fd = ev_connect(client->addr, client->port);
     if (fd < 0) return EV_TCP_FAILURE;
 
@@ -875,7 +877,7 @@ int ev_tcp_connect(ev_tcp_handle *client, recv_callback on_data,
     return EV_TCP_SUCCESS;
 }
 
-int ev_tcp_enqueue_write(ev_tcp_handle *client) {
+int ev_tcp_queue_write(ev_tcp_handle *client) {
     if (!client->c->on_send) return EV_TCP_MISSING_CALLBACK;
     client->to_write = client->buffer.size;
     int err =
@@ -885,7 +887,7 @@ int ev_tcp_enqueue_write(ev_tcp_handle *client) {
     return EV_TCP_SUCCESS;
 }
 
-int ev_tcp_enqueue_read(ev_tcp_handle *client) {
+int ev_tcp_queue_read(ev_tcp_handle *client) {
     if (!client->c->on_recv) return EV_TCP_MISSING_CALLBACK;
     int err =
         ev_fire_event(client->ctx, client->c->fd, EV_READ, ev_on_recv, client);
@@ -894,7 +896,7 @@ int ev_tcp_enqueue_read(ev_tcp_handle *client) {
     return EV_TCP_SUCCESS;
 }
 
-int ev_tcp_enqueue_close(ev_tcp_handle *client) {
+int ev_tcp_queue_close(ev_tcp_handle *client) {
     return ev_fire_event(client->ctx, client->c->fd, EV_WRITE, ev_on_close,
                          client);
 }

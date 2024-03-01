@@ -25,9 +25,9 @@ static void on_write(ev_tcp_handle *client) {
 static void on_data(ev_tcp_handle *client) {
     printf("Received %li bytes\n", client->buffer.size);
     if (strncmp(client->buffer.buf, "quit", 4) == 0)
-        (void) ev_tcp_enqueue_close(client);
+        (void) ev_tcp_queue_close(client);
     else
-        (void) ev_tcp_enqueue_write(client);
+        (void) ev_tcp_queue_write(client);
 }
 
 static void on_connection(ev_tcp_handle *server) {

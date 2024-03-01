@@ -91,7 +91,7 @@ static void on_data(ev_tcp_handle *client) {
         ev_tcp_close_handle(client);
     else
         // Enqueue a write of the buffer content for the next loop cycle
-        ev_tcp_enqueue_write(client);
+        ev_tcp_queue_write(client);
         // If want to respond on the same loop cycle
         // ev_tcp_write(client);
 }
@@ -176,7 +176,7 @@ static void on_tcp_send(ev_tcp_handle *client) {
     printf("Written %s", client->buffer.buf);
     ev_tcp_zero_buffer(client);
     // Re-arm TCP client for read
-    (void)ev_tcp_enqueue_read(client);
+    (void)ev_tcp_queue_read(client);
 }
 
 static void on_tcp_recv(ev_tcp_handle *client) {
@@ -210,7 +210,7 @@ static void on_stdin(ev_context *ctx, void *ptr) {
 
     ev_tcp_fill_buffer(handle, buf, n);
 
-    ev_tcp_enqueue_write(handle);
+    ev_tcp_queue_write(handle);
 
     return;
 
